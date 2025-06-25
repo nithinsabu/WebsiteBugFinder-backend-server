@@ -1,0 +1,28 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WBF.Tests", "WBF.Tests\WBF.Tests.csproj", "{C4B4065B-B4B7-47D2-B541-ED6C49B1FFB3}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WBF", "WBF\WBF.csproj", "{C1A3AF0D-ECD7-42CA-9C2B-54F7B3DD01E3}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{C4B4065B-B4B7-47D2-B541-ED6C49B1FFB3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C4B4065B-B4B7-47D2-B541-ED6C49B1FFB3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C4B4065B-B4B7-47D2-B541-ED6C49B1FFB3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C4B4065B-B4B7-47D2-B541-ED6C49B1FFB3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C1A3AF0D-ECD7-42CA-9C2B-54F7B3DD01E3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C1A3AF0D-ECD7-42CA-9C2B-54F7B3DD01E3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C1A3AF0D-ECD7-42CA-9C2B-54F7B3DD01E3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C1A3AF0D-ECD7-42CA-9C2B-54F7B3DD01E3}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
