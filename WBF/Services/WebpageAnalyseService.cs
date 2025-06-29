@@ -14,7 +14,17 @@ public class WebpageSummary
     public string? Url { get; set; }
 }
 
-public class WebpageAnalyseService
+public interface IWebpageAnalyseService
+    {
+        Task<string> CreateUserAsync(string email);
+        Task<User?> GetUserByEmailAsync(string email);
+        Task<string> CreateWebpageAsync(Webpage webpage);
+        Task<string> UploadFileAsync(Stream stream, string filename);
+        Task<Stream> DownloadFileAsync(string fileId);
+        Task<List<WebpageSummary>> ListWebpagesAsync();
+    }
+
+public class WebpageAnalyseService : IWebpageAnalyseService
 {
     // Services: User account creation
     // User account verification
@@ -26,10 +36,8 @@ public class WebpageAnalyseService
     private readonly IMongoCollection<User> _userCollection;
     private readonly IMongoCollection<LLMFeedback> _llmFeedbackCollection;
     private readonly GridFSBucket _bucket;
-    public WebpageAnalyseService(IOptions<WebpageAnalyseDatabaseSettings> webpageAnalyseDatabaseSettings)
+    public WebpageAnalyseService(IMongoDatabase mongoDatabase, IOptions<WebpageAnalyseDatabaseSettings> webpageAnalyseDatabaseSettings)
     {
-        var mongoClient = new MongoClient(webpageAnalyseDatabaseSettings.Value.ConnectionString);
-        var mongoDatabase = mongoClient.GetDatabase(webpageAnalyseDatabaseSettings.Value.DatabaseName);
         _webpagesCollection = mongoDatabase.GetCollection<Webpage>(webpageAnalyseDatabaseSettings.Value.WebpagesCollectionName);
         _userCollection = mongoDatabase.GetCollection<User>(webpageAnalyseDatabaseSettings.Value.UsersCollectionName);
         _llmFeedbackCollection = mongoDatabase.GetCollection<LLMFeedback>(webpageAnalyseDatabaseSettings.Value.LLMFeedbacksCollectionName);
@@ -69,17 +77,17 @@ public class WebpageAnalyseService
     }
 
     public async Task<List<WebpageSummary>> ListWebpagesAsync()
-{
-    return await _webpagesCollection
-        .Find(_ => true)
-        .Project(w => new WebpageSummary
-        {
-            Id = w.Id,
-            Name = w.Name,
-            UploadDate = w.UploadDate,
-            FileName = w.FileName,
-            Url = w.Url
-        })
-        .ToListAsync();
-}
+    {
+        return await _webpagesCollection
+            .Find(_ => true)
+            .Project(w => new WebpageSummary
+            {
+                Id = w.Id,
+                Name = w.Name,
+                UploadDate = w.UploadDate,
+                FileName = w.FileName,
+                Url = w.Url
+            })
+            .ToListAsync();
+    }
 }
