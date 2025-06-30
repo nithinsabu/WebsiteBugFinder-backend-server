@@ -15,13 +15,14 @@ public class WebpageSummary
 }
 
 public interface IWebpageAnalyseService
-    {
-        Task<string> CreateUserAsync(string email);
-        Task<User?> GetUserByEmailAsync(string email);
-        Task<string> CreateWebpageAsync(Webpage webpage);
-        Task<string> UploadFileAsync(Stream stream, string filename);
-        Task<Stream> DownloadFileAsync(string fileId);
-        Task<List<WebpageSummary>> ListWebpagesAsync();
+{
+    Task<string?> CreateUserAsync(string email);
+    Task<string?> GetUserByEmailAsync(string email);
+    Task<string> CreateWebpageAndLLMFeedbackAsync(Webpage webpage, LLMFeedback llmFeedback);
+    Task<string> UploadFileAsync(Stream stream, string filename);
+    Task<Stream?> DownloadFileAsync(string fileId);
+    Task<List<WebpageSummary>> ListWebpagesAsync(string userId);
+    Task<(string? HtmlContent, string? LLMResponse)> GetWebpageContentAndLLMAsync(string webpageId);
     }
 
 public class WebpageAnalyseService : IWebpageAnalyseService
@@ -44,21 +45,28 @@ public class WebpageAnalyseService : IWebpageAnalyseService
         _bucket = new GridFSBucket(mongoDatabase);
     }
 
-    public async Task<string> CreateUserAsync(string email)
+    public async Task<string?> CreateUserAsync(string email)
     {
+        if (await GetUserByEmailAsync(email) != null)
+        {
+            return null;
+        }
         var user = new User { Email = email };
         await _userCollection.InsertOneAsync(user);
         return user.Id;
     }
 
-    public async Task<User?> GetUserByEmailAsync(string email)
+    public async Task<string?> GetUserByEmailAsync(string email)
     {
-        return await _userCollection.Find(u => u.Email == email).FirstOrDefaultAsync();
+        return (await _userCollection.Find(u => u.Email == email).FirstOrDefaultAsync())?.Id;
+
     }
 
-    public async Task<string> CreateWebpageAsync(Webpage webpage)
+    public async Task<string> CreateWebpageAndLLMFeedbackAsync(Webpage webpage, LLMFeedback llmFeedback)
     {
         await _webpagesCollection.InsertOneAsync(webpage);
+        llmFeedback.WebpageId = webpage.Id;
+        await _llmFeedbackCollection.InsertOneAsync(llmFeedback);
         return webpage.Id;
     }
 
@@ -67,19 +75,27 @@ public class WebpageAnalyseService : IWebpageAnalyseService
         return (await _bucket.UploadFromStreamAsync(filename, stream)).ToString();
     }
 
-    public async Task<Stream> DownloadFileAsync(string fileId)
+    public async Task<Stream?> DownloadFileAsync(string fileId)
     {
-        var objectId = ObjectId.Parse(fileId);
-        var stream = new MemoryStream();
-        await _bucket.DownloadToStreamAsync(objectId, stream);
-        stream.Seek(0, SeekOrigin.Begin);
-        return stream;
+        try
+        {
+            var objectId = ObjectId.Parse(fileId);
+            var stream = new MemoryStream();
+            await _bucket.DownloadToStreamAsync(objectId, stream);
+            stream.Seek(0, SeekOrigin.Begin);
+            return stream;
+        }
+        catch
+        {
+            return null;
+        }
+
     }
 
-    public async Task<List<WebpageSummary>> ListWebpagesAsync()
+    public async Task<List<WebpageSummary>> ListWebpagesAsync(string userId)
     {
         return await _webpagesCollection
-            .Find(_ => true)
+            .Find(w => w.UserId == userId)
             .Project(w => new WebpageSummary
             {
                 Id = w.Id,
@@ -90,4 +106,21 @@ public class WebpageAnalyseService : IWebpageAnalyseService
             })
             .ToListAsync();
     }
+
+    public async Task<(string? HtmlContent, string? LLMResponse)> GetWebpageContentAndLLMAsync(string webpageId)
+{
+    var webpage = await _webpagesCollection.Find(w => w.Id == webpageId).FirstOrDefaultAsync();
+    if (webpage == null || string.IsNullOrEmpty(webpage.HtmlContentId))
+        return (null, null);
+
+    var stream = await DownloadFileAsync(webpage.HtmlContentId);
+    if (stream == null)
+        return (null, null);
+
+    using var reader = new StreamReader(stream);
+    var html = await reader.ReadToEndAsync();
+
+    var llmFeedback = await _llmFeedbackCollection.Find(f => f.WebpageId == webpageId).FirstOrDefaultAsync();
+    return (html, llmFeedback?.LLMResponse);
+}
 }

@@ -7,6 +7,18 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll", policy =>
+    {
+        policy
+            .AllowAnyOrigin()    
+            .AllowAnyHeader()
+            .AllowAnyMethod();
+    });
+});
+
 // Add services to the container.
 
 builder.Services.AddControllers();
@@ -29,13 +41,15 @@ builder.Services.AddSingleton<IMongoDatabase>(sp =>
     var client = sp.GetRequiredService<IMongoClient>();
     return client.GetDatabase(settings.DatabaseName);
 });
-
 builder.Services.AddScoped<IWebpageAnalyseService, WebpageAnalyseService>();
-builder.Services.AddHttpClient<WebpageAnalyseController>(client =>
+    // Console.WriteLine(builder.Configuration["PythonServer:ConnectionString"]);
+
+builder.Services.AddHttpClient("PythonServer", client =>
 {
-    if (string.IsNullOrEmpty(builder.Configuration["PythonServer:ConnectionString"]))
-    { throw new InvalidOperationException("Missing config: PythonServer:ConnectionString"); }
-    client.BaseAddress = new Uri(builder.Configuration["PythonServer:ConnectionString"]);
+    var baseUrl = builder.Configuration["PythonServer:ConnectionString"];
+    if (string.IsNullOrEmpty(baseUrl))
+        throw new InvalidOperationException("Missing config: PythonServer:ConnectionString");
+    client.BaseAddress = new Uri(baseUrl);
 });
 
 var app = builder.Build();
@@ -48,7 +62,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-
+app.UseCors("AllowAll");
 app.UseAuthorization();
 
 app.MapControllers();

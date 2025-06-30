@@ -27,23 +27,50 @@ public class WebpageAnalyseControllerTests : IDisposable
     {
         _mockService = new Mock<IWebpageAnalyseService>();
         var mockLogger = new Mock<ILogger<WebpageAnalyseController>>();
+        var MockIHttpClientFactory = MockHttpClientFactory("mocked LLM response");
+        _controller = new WebpageAnalyseController(_mockService.Object, MockIHttpClientFactory, mockLogger.Object);
+    }
 
-        var handlerMock = new Mock<HttpMessageHandler>();
-
-handlerMock.Protected()
-    .Setup<Task<HttpResponseMessage>>(
-        "SendAsync",
-        ItExpr.IsAny<HttpRequestMessage>(),
-        ItExpr.IsAny<CancellationToken>())
-    .ReturnsAsync(new HttpResponseMessage
+    private static IHttpClientFactory MockHttpClientFactory(string responseContent)
     {
-        StatusCode = HttpStatusCode.OK,
-        Content = new StringContent("mocked response")
-    });
+        var handler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+        handler
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>()
+            )
+            .ReturnsAsync(new HttpResponseMessage
+            {
+                StatusCode = HttpStatusCode.OK,
+                Content = new StringContent(responseContent)
+            });
 
-var mockHttpClient = new HttpClient(handlerMock.Object);
+        var client = new HttpClient(handler.Object)
+        {
+            BaseAddress = new Uri("http://fake")
+        };
 
-        _controller = new WebpageAnalyseController(_mockService.Object, mockHttpClient, mockLogger.Object);
+        var factory = new Mock<IHttpClientFactory>();
+        factory.Setup(f => f.CreateClient("PythonServer")).Returns(client);
+        return factory.Object;
+    }
+    private IFormFile CreateHtmlFile()
+    {
+        var content = "sample html content";
+        var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(content));
+        return new FormFile(stream, 0, stream.Length, "htmlFile", "index.html");
+    }
+
+    private static FormFile CreateFile(string filename, string contentType)
+    {
+        var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes("sample content"));
+        return new FormFile(stream, 0, stream.Length, filename, filename)
+        {
+            Headers = new HeaderDictionary(),
+            ContentType = contentType
+        };
     }
 
     public void Dispose()
@@ -54,6 +81,8 @@ var mockHttpClient = new HttpClient(handlerMock.Object);
     [Fact]
     public async Task Login_WithInvalidEmail_ReturnsBadRequest()
     {
+        _mockService.Setup(s => s.GetUserByEmailAsync(It.IsAny<string>()))
+                    .ReturnsAsync("abc123");
         var result = await _controller.Login("invalidEmail");
 
         var badRequest = Assert.IsType<BadRequestObjectResult>(result);
@@ -65,7 +94,7 @@ var mockHttpClient = new HttpClient(handlerMock.Object);
     {
         var email = "user@example.com";
         _mockService.Setup(s => s.GetUserByEmailAsync(email))
-                    .ReturnsAsync(new User { Email = email });
+                    .ReturnsAsync("abc123");
 
         var result = await _controller.Login(email);
 
@@ -78,8 +107,8 @@ var mockHttpClient = new HttpClient(handlerMock.Object);
     public async Task Login_UserNotFound_ReturnsUnauthorized()
     {
         var email = "user@example.com";
-        _mockService.Setup(s => s.GetUserByEmailAsync(email))
-                    .ReturnsAsync((User)null);
+        _mockService.Setup(s => s.GetUserByEmailAsync(It.IsAny<string>()))
+                    .ReturnsAsync((string)null);
 
         var result = await _controller.Login(email);
 
@@ -91,6 +120,8 @@ var mockHttpClient = new HttpClient(handlerMock.Object);
     [Fact]
     public async Task Signup_WithInvalidEmail_ReturnsBadRequest()
     {
+        _mockService.Setup(s => s.CreateUserAsync(It.IsAny<string>()))
+                    .ReturnsAsync("userId");
         var result = await _controller.Signup("bademail");
 
         var badRequest = Assert.IsType<BadRequestObjectResult>(result);
@@ -114,43 +145,259 @@ var mockHttpClient = new HttpClient(handlerMock.Object);
     }
 
 
-    private IFormFile CreateFile(string fileName = "file.html", string content = "<html></html>")
-    {
-        var stream = new MemoryStream(Encoding.UTF8.GetBytes(content));
-        return new FormFile(stream, 0, stream.Length, fileName, fileName);
-    }
-
+    //Upload Validation tests
     [Fact]
     public async Task Upload_MissingEmail_ReturnsBadRequest()
     {
-        var result = await _controller.Upload(null);
+        _mockService.Setup(s => s.GetUserByEmailAsync(It.IsAny<string>())).ReturnsAsync("123abc");
+        _mockService.Setup(s => s.UploadFileAsync(It.IsAny<Stream>(), It.IsAny<string>())).ReturnsAsync("htmlFileId");
+        _mockService.Setup(s => s.CreateWebpageAndLLMFeedbackAsync(It.IsAny<Webpage>(), It.IsAny<LLMFeedback>())).ReturnsAsync("webpage123");
+
+        var result = await _controller.Upload(name: "test", email: null!);
         Assert.IsType<BadRequestObjectResult>(result);
     }
 
     [Fact]
     public async Task Upload_InvalidEmail_ReturnsBadRequest()
     {
-        var result = await _controller.Upload("not-an-email");
+        _mockService.Setup(s => s.GetUserByEmailAsync(It.IsAny<string>())).ReturnsAsync("123abc");
+        _mockService.Setup(s => s.UploadFileAsync(It.IsAny<Stream>(), It.IsAny<string>())).ReturnsAsync("htmlFileId");
+        _mockService.Setup(s => s.CreateWebpageAndLLMFeedbackAsync(It.IsAny<Webpage>(), It.IsAny<LLMFeedback>())).ReturnsAsync("webpage123");
+
+        var result = await _controller.Upload(name: "test", email: "not-an-email");
         Assert.IsType<BadRequestObjectResult>(result);
     }
 
     [Fact]
-    public async Task Upload_ValidEmail_WithoutHtmlOrUrl_ReturnsBadRequest()
+    public async Task Upload_NoHtmlOrUrl_ReturnsBadRequest()
     {
-        var result = await _controller.Upload("test@example.com");
+        _mockService.Setup(s => s.GetUserByEmailAsync(It.IsAny<string>())).ReturnsAsync("123abc");
+        _mockService.Setup(s => s.UploadFileAsync(It.IsAny<Stream>(), It.IsAny<string>())).ReturnsAsync("htmlFileId");
+        _mockService.Setup(s => s.CreateWebpageAndLLMFeedbackAsync(It.IsAny<Webpage>(), It.IsAny<LLMFeedback>())).ReturnsAsync("webpage123");
+
+        var result = await _controller.Upload(name: "test", email: "test@example.com");
         Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task Upload_BothHtmlAndUrl_ReturnsBadRequest()
+    {
+        _mockService.Setup(s => s.GetUserByEmailAsync(It.IsAny<string>())).ReturnsAsync("123abc");
+        _mockService.Setup(s => s.UploadFileAsync(It.IsAny<Stream>(), It.IsAny<string>())).ReturnsAsync("htmlFileId");
+        _mockService.Setup(s => s.CreateWebpageAndLLMFeedbackAsync(It.IsAny<Webpage>(), It.IsAny<LLMFeedback>())).ReturnsAsync("webpage123");
+
+        var result = await _controller.Upload(name: "test", email: "test@example.com", htmlFile: CreateHtmlFile(), url: "https://example.com");
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task Upload_HtmlWithWrongExtension_ReturnsBadRequest()
+    {
+        _mockService.Setup(s => s.GetUserByEmailAsync(It.IsAny<string>())).ReturnsAsync("123abc");
+        _mockService.Setup(s => s.UploadFileAsync(It.IsAny<Stream>(), It.IsAny<string>())).ReturnsAsync("htmlFileId");
+        _mockService.Setup(s => s.CreateWebpageAndLLMFeedbackAsync(It.IsAny<Webpage>(), It.IsAny<LLMFeedback>())).ReturnsAsync("webpage123");
+
+        var result = await _controller.Upload(name: "test", email: "test@example.com", htmlFile: CreateFile("file.txt", "text/plain"));
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task Upload_SpecificationWithInvalidExtension_ReturnsBadRequest()
+    {
+        _mockService.Setup(s => s.GetUserByEmailAsync(It.IsAny<string>())).ReturnsAsync("123abc");
+        _mockService.Setup(s => s.UploadFileAsync(It.IsAny<Stream>(), It.IsAny<string>())).ReturnsAsync("htmlFileId");
+        _mockService.Setup(s => s.CreateWebpageAndLLMFeedbackAsync(It.IsAny<Webpage>(), It.IsAny<LLMFeedback>())).ReturnsAsync("webpage123");
+
+        var result = await _controller.Upload(name: "test", email: "test@example.com", htmlFile: CreateHtmlFile(), specificationFile: CreateFile("spec.pdf", "application/pdf"));
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task Upload_DesignFileWithInvalidExtension_ReturnsBadRequest()
+    {
+        _mockService.Setup(s => s.GetUserByEmailAsync(It.IsAny<string>())).ReturnsAsync("123abc");
+        _mockService.Setup(s => s.UploadFileAsync(It.IsAny<Stream>(), It.IsAny<string>())).ReturnsAsync("htmlFileId");
+        _mockService.Setup(s => s.CreateWebpageAndLLMFeedbackAsync(It.IsAny<Webpage>(), It.IsAny<LLMFeedback>())).ReturnsAsync("webpage123");
+
+        var result = await _controller.Upload(name: "test", email: "test@example.com", htmlFile: CreateHtmlFile(), designFile: CreateFile("design.exe", "application/octet-stream"));
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    //Business logic tests
+    [Fact]
+    public async Task Upload_UserNotFound_ReturnsUnauthorized()
+    {
+        _mockService.Setup(s => s.GetUserByEmailAsync(It.IsAny<string>())).ReturnsAsync((string?)null);
+        _mockService.Setup(s => s.CreateWebpageAndLLMFeedbackAsync(It.IsAny<Webpage>(), It.IsAny<LLMFeedback>())).ReturnsAsync("abc123");
+        _mockService.Setup(s => s.UploadFileAsync(It.IsAny<Stream>(), It.IsAny<string>())).ReturnsAsync("abc123");
+
+        var result = await _controller.Upload(name: "test", email: "test@example.com", htmlFile: CreateHtmlFile());
+        Assert.IsType<UnauthorizedObjectResult>(result);
     }
 
     [Fact]
     public async Task Upload_WithHtmlOnly_ReturnsOk()
     {
-        _mockService.Setup(s => s.CreateWebpageAsync(It.IsAny<Webpage>())).ReturnsAsync("webpageId");
+        _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("123abc");
+        _mockService.Setup(s => s.UploadFileAsync(It.IsAny<Stream>(), It.IsAny<string>())).ReturnsAsync("htmlFileId");
+        _mockService.Setup(s => s.CreateWebpageAndLLMFeedbackAsync(It.IsAny<Webpage>(), It.IsAny<LLMFeedback>())).ReturnsAsync("webpage123");
+
+        var result = await _controller.Upload(name: "MyPage", email: "test@example.com", htmlFile: CreateHtmlFile());
+
+        var ok = Assert.IsType<OkObjectResult>(result);
+        Assert.Equal("webpage123", ok.Value);
+    }
+
+    [Fact]
+    public async Task Upload_WithUrlOnly_ReturnsOk()
+    {
+        _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("123abc");
+        _mockService.Setup(s => s.UploadFileAsync(It.IsAny<Stream>(), It.IsAny<string>())).ReturnsAsync("htmlFileId");
+        _mockService.Setup(s => s.CreateWebpageAndLLMFeedbackAsync(It.IsAny<Webpage>(), It.IsAny<LLMFeedback>())).ReturnsAsync("webpage123");
+
+        var result = await _controller.Upload(name: "FromUrl", email: "test@example.com", url: "https://example.com");
+
+        var ok = Assert.IsType<OkObjectResult>(result);
+        Assert.Equal("webpage123", ok.Value);
+    }
+
+    [Fact]
+    public async Task Upload_WithDesignAndSpec_ReturnsOk()
+    {
+        _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("123abc");
+        _mockService.Setup(s => s.UploadFileAsync(It.IsAny<Stream>(), It.IsAny<string>())).ReturnsAsync("fileId");
+        _mockService.Setup(s => s.CreateWebpageAndLLMFeedbackAsync(It.IsAny<Webpage>(), It.IsAny<LLMFeedback>())).ReturnsAsync("webpage123");
 
         var result = await _controller.Upload(
+            name: "WithFiles",
             email: "test@example.com",
-            htmlFile: CreateFile()
+            htmlFile: CreateHtmlFile(),
+            designFile: CreateFile("design.png", "image/png"),
+            specificationFile: CreateFile("spec.txt", "text/plain")
         );
 
-        Assert.IsType<OkObjectResult>(result);
+        var ok = Assert.IsType<OkObjectResult>(result);
+        Assert.Equal("webpage123", ok.Value);
     }
+
+    [Fact]
+    public async Task ListWebpages_InvalidEmail_ReturnsBadRequest()
+    {
+        _mockService.Setup(s => s.GetUserByEmailAsync(It.IsAny<string>()))
+                    .ReturnsAsync("user123");
+
+        var expectedList = new List<WebpageSummary>
+    {
+        new WebpageSummary { Id = "id1", Name = "Test 1" },
+        new WebpageSummary { Id = "id2", Name = "Test 2" }
+    };
+
+        _mockService.Setup(s => s.ListWebpagesAsync(It.IsAny<string>()))
+                    .ReturnsAsync(expectedList);
+
+        var result = await _controller.ListWebpages("invalid-email");
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal("Invalid email", badRequest.Value);
+    }
+
+    [Fact]
+    public async Task ListWebpages_UserNotFound_ReturnsUnauthorized()
+    {
+        _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com"))
+                    .ReturnsAsync((string?)null);
+
+        var expectedList = new List<WebpageSummary>
+    {
+        new WebpageSummary { Id = "id1", Name = "Test 1" },
+        new WebpageSummary { Id = "id2", Name = "Test 2" }
+    };
+
+        _mockService.Setup(s => s.ListWebpagesAsync(It.IsAny<string>()))
+                    .ReturnsAsync(expectedList);
+
+        var result = await _controller.ListWebpages("test@example.com");
+
+        var unauthorized = Assert.IsType<UnauthorizedObjectResult>(result);
+        Assert.Equal("Please Sign up", unauthorized.Value);
+    }
+
+    [Fact]
+    public async Task ListWebpages_ValidUser_ReturnsWebpagesForUser()
+    {
+        var userId = "user123";
+        _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com"))
+                    .ReturnsAsync(userId);
+
+        var expectedList = new List<WebpageSummary>
+    {
+        new WebpageSummary { Id = "id1", Name = "Test 1" },
+        new WebpageSummary { Id = "id2", Name = "Test 2" }
+    };
+
+        _mockService.Setup(s => s.ListWebpagesAsync(userId))
+                    .ReturnsAsync(expectedList);
+
+        var result = await _controller.ListWebpages("test@example.com");
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var returnedList = Assert.IsType<List<WebpageSummary>>(okResult.Value);
+
+        Assert.Equal(2, returnedList.Count);
+        Assert.Equal("id1", returnedList[0].Id);
+        Assert.Equal("Test 1", returnedList[0].Name);
+    }
+
+    [Fact]
+public async Task ViewWebpage_ValidId_ReturnsHtmlAndLLM()
+{
+    // Arrange
+    string webpageId = "abc123";
+    string email = "test@example.com";
+    _mockService.Setup(s => s.GetUserByEmailAsync(email)).ReturnsAsync("user123");
+    _mockService.Setup(s => s.GetWebpageContentAndLLMAsync(webpageId))
+                .ReturnsAsync(("<html>hi</html>", "LLM feedback"));
+
+    // Act
+    var result = await _controller.ViewWebpage(webpageId, email);
+
+    // Assert
+   var okResult = Assert.IsType<OkObjectResult>(result);
+    var dict = JsonConvert.DeserializeObject<Dictionary<string, string>>(
+        JsonConvert.SerializeObject(okResult.Value)
+    )!;
+
+    Assert.Contains("<html>hi</html>", dict["html"]);
+    Assert.Equal("LLM feedback", dict["llm"]);
+}
+
+    [Fact]
+    public async Task ViewWebpage_UserNotFound_ReturnsUnauthorized()
+    {
+        _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync((string?)null);
+        _mockService.Setup(s => s.GetWebpageContentAndLLMAsync(It.IsAny<string>()))
+                .ReturnsAsync(("<html>hi</html>", "LLM feedback"));
+
+        var result = await _controller.ViewWebpage("abc123", "test@example.com");
+
+        var unauthorized = Assert.IsType<UnauthorizedObjectResult>(result);
+        Assert.Equal("Please Sign up", unauthorized.Value);
+    }
+
+    [Fact]
+    public async Task ViewWebpage_InvalidWebpage_ReturnsNotFound()
+    {
+        _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user123");
+        _mockService.Setup(s => s.GetWebpageContentAndLLMAsync("abc123")).ReturnsAsync((null, null));
+
+        var result = await _controller.ViewWebpage("abc123", "test@example.com");
+
+        var notFound = Assert.IsType<NotFoundObjectResult>(result);
+        Assert.Equal("Webpage or HTML content not found", notFound.Value);
+    }
+
+
+
+
+
 }
