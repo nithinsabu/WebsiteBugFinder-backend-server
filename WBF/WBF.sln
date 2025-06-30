@@ -1,0 +1,24 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WBF", "WBF.csproj", "{5666AFAF-9981-18F5-3A29-F719473039FB}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{5666AFAF-9981-18F5-3A29-F719473039FB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5666AFAF-9981-18F5-3A29-F719473039FB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5666AFAF-9981-18F5-3A29-F719473039FB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5666AFAF-9981-18F5-3A29-F719473039FB}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {C052C7B5-FB91-4E9D-BA8E-631E2C4A1596}
+	EndGlobalSection
+EndGlobal
