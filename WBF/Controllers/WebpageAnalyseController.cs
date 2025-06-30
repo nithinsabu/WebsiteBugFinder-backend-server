@@ -220,6 +220,6 @@ public class WebpageAnalyseController : ControllerBase
         if (htmlContent == null)
             return NotFound("Webpage or HTML content not found");
 
-        return Ok(new { html = htmlContent, llm = llmResponse });
+        return Ok(new { htmlContent, llmResponse });
     }
 }
