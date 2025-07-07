@@ -61,7 +61,7 @@ public class WebpageAnalyseController : ControllerBase
         return Ok(new { userId = userId, email = email });
     }
 
-    private async Task<string> ForwardToLLM(string htmlText, string? specification = null, Stream? designFile = null, string designFileName = "designFile.png")
+    private async Task<string> ForwardToLLM(string htmlText, string? specification = null, Stream? designFile = null, string designFileName = "designFile.png", string? designFileType = "image/png")
     //throws error if failed. Should be handled by the function that is calling this. it is understood that the input format is what is required.
     {
         using (var content = new MultipartFormDataContent())
@@ -72,15 +72,22 @@ public class WebpageAnalyseController : ControllerBase
                 content.Add(new StringContent(specification), "specification");
             }
 
-            if (designFile != null)
+            if (designFile != null && designFileType != null)
             {
                 StreamContent designFileHttpContent = new StreamContent(designFile);
+                designFileHttpContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(designFileType);
+
                 content.Add(designFileHttpContent, "designFile", designFileName);
             }
             var pythonServer = _pythonServerFactory.CreateClient("PythonServer");
             HttpResponseMessage response = await pythonServer.PostAsync("/webpage-analysis", content);
-            response.EnsureSuccessStatusCode();
             string responseString = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new HttpRequestException($"{response.StatusCode}: {responseString}");
+            }
+
             return responseString;
         }
     }
@@ -140,12 +147,12 @@ public class WebpageAnalyseController : ControllerBase
                 using var specReader = new StreamReader(specificationFile.OpenReadStream());
                 specification = await specReader.ReadToEndAsync();
             }
-
             var result = await ForwardToLLM(
                 htmlText: htmlText,
                 specification: specification,
                 designFile: designFile?.OpenReadStream(),
-                designFileName: designFile?.FileName ?? "designFile.png"
+                designFileName: designFile?.FileName ?? "designFile.png",
+                designFileType: designFile?.ContentType
             );
             _logger.LogInformation(result);
 
@@ -167,7 +174,7 @@ public class WebpageAnalyseController : ControllerBase
                 specFileId = await _webpageAnalyseService.UploadFileAsync(specificationFile.OpenReadStream(), specificationFile.FileName);
             }
 
-            // 7. Create models
+            // Create models
             var webpage = new Webpage
             {
                 UserId = userId!,

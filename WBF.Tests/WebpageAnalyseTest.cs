@@ -367,8 +367,8 @@ public async Task ViewWebpage_ValidId_ReturnsHtmlAndLLM()
         JsonConvert.SerializeObject(okResult.Value)
     )!;
 
-    Assert.Contains("<html>hi</html>", dict["html"]);
-    Assert.Equal("LLM feedback", dict["llm"]);
+    Assert.Contains("<html>hi</html>", dict["htmlContent"]);
+    Assert.Equal("LLM feedback", dict["llmResponse"]);
 }
 
     [Fact]
