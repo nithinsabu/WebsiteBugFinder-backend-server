@@ -4,7 +4,6 @@ using Moq.Protected;
 using WBF.Controllers;
 using WBF.Services;
 using WBF.Models;
-using Newtonsoft.Json;
 using System.Text;
 using System.Net;
 using Xunit;
@@ -14,8 +13,11 @@ using System.IO;
 using System.Collections.Generic;
 using Castle.Core.Logging;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
+using Newtonsoft.Json;
+// using Microsoft.Extensions.Configuration;
 // using Castle.Core.Configuration;
-using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 namespace WBF.Tests;
 
 public class WebpageAnalyseControllerTests : IDisposable
@@ -27,15 +29,39 @@ public class WebpageAnalyseControllerTests : IDisposable
     {
         _mockService = new Mock<IWebpageAnalyseService>();
         var mockLogger = new Mock<ILogger<WebpageAnalyseController>>();
-        var MockIHttpClientFactory = MockHttpClientFactory("mocked LLM response");
-        _controller = new WebpageAnalyseController(_mockService.Object, MockIHttpClientFactory, mockLogger.Object);
+        var MockIHttpClientFactory = MockHttpClientFactory();
+        var mockPageSpeedConfig = new Mock<IOptions<PageSpeedAPIConfig>>();
+        mockPageSpeedConfig.Setup(s => s.Value).Returns(new PageSpeedAPIConfig
+        {
+            API_KEY = "MOCK_API_KEY"
+        });
+        _controller = new WebpageAnalyseController(_mockService.Object, MockIHttpClientFactory, mockLogger.Object, mockPageSpeedConfig.Object);
     }
 
-    private static IHttpClientFactory MockHttpClientFactory(string responseContent)
+    private static IHttpClientFactory MockHttpClientFactory()
+    {
+        var factory = new Mock<IHttpClientFactory>();
+
+        factory.Setup(f => f.CreateClient("PythonServer"))
+            .Returns(CreateMockedHttpClient(new LLMResponse()));
+
+        factory.Setup(f => f.CreateClient("AxeCore"))
+            .Returns(CreateMockedHttpClient(new AxeCoreResponse()));
+
+        factory.Setup(f => f.CreateClient("PageSpeedAPI"))
+            .Returns(CreateMockedHttpClient(new PageSpeedResponse()));
+
+        factory.Setup(f => f.CreateClient("NuValidator"))
+            .Returns(CreateMockedHttpClient(new NuValidatorResponse()));
+
+        return factory.Object;
+    }
+
+    private static HttpClient CreateMockedHttpClient<T>(T responseObject)
     {
         var handler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
-        handler
-            .Protected()
+
+        handler.Protected()
             .Setup<Task<HttpResponseMessage>>(
                 "SendAsync",
                 ItExpr.IsAny<HttpRequestMessage>(),
@@ -44,17 +70,17 @@ public class WebpageAnalyseControllerTests : IDisposable
             .ReturnsAsync(new HttpResponseMessage
             {
                 StatusCode = HttpStatusCode.OK,
-                Content = new StringContent(responseContent)
+                Content = new StringContent(
+                    System.Text.Json.JsonSerializer.Serialize(responseObject),
+                    System.Text.Encoding.UTF8,
+                    "application/json"
+                )
             });
 
-        var client = new HttpClient(handler.Object)
+        return new HttpClient(handler.Object)
         {
             BaseAddress = new Uri("http://fake")
         };
-
-        var factory = new Mock<IHttpClientFactory>();
-        factory.Setup(f => f.CreateClient("PythonServer")).Returns(client);
-        return factory.Object;
     }
     private IFormFile CreateHtmlFile()
     {
@@ -108,7 +134,7 @@ public class WebpageAnalyseControllerTests : IDisposable
     {
         var email = "user@example.com";
         _mockService.Setup(s => s.GetUserByEmailAsync(It.IsAny<string>()))
-                    .ReturnsAsync((string)null);
+                    .ReturnsAsync((string?)null);
 
         var result = await _controller.Login(email);
 
@@ -151,7 +177,7 @@ public class WebpageAnalyseControllerTests : IDisposable
     {
         _mockService.Setup(s => s.GetUserByEmailAsync(It.IsAny<string>())).ReturnsAsync("123abc");
         _mockService.Setup(s => s.UploadFileAsync(It.IsAny<Stream>(), It.IsAny<string>())).ReturnsAsync("htmlFileId");
-        _mockService.Setup(s => s.CreateWebpageAndLLMFeedbackAsync(It.IsAny<Webpage>(), It.IsAny<LLMFeedback>())).ReturnsAsync("webpage123");
+        _mockService.Setup(s => s.CreateWebpageAndAnalysisResultAsync(It.IsAny<Webpage>(), It.IsAny<WebpageAnalysisResult>())).ReturnsAsync("webpage123");
 
         var result = await _controller.Upload(name: "test", email: null!);
         Assert.IsType<BadRequestObjectResult>(result);
@@ -162,7 +188,7 @@ public class WebpageAnalyseControllerTests : IDisposable
     {
         _mockService.Setup(s => s.GetUserByEmailAsync(It.IsAny<string>())).ReturnsAsync("123abc");
         _mockService.Setup(s => s.UploadFileAsync(It.IsAny<Stream>(), It.IsAny<string>())).ReturnsAsync("htmlFileId");
-        _mockService.Setup(s => s.CreateWebpageAndLLMFeedbackAsync(It.IsAny<Webpage>(), It.IsAny<LLMFeedback>())).ReturnsAsync("webpage123");
+        _mockService.Setup(s => s.CreateWebpageAndAnalysisResultAsync(It.IsAny<Webpage>(), It.IsAny<WebpageAnalysisResult>())).ReturnsAsync("webpage123");
 
         var result = await _controller.Upload(name: "test", email: "not-an-email");
         Assert.IsType<BadRequestObjectResult>(result);
@@ -173,7 +199,7 @@ public class WebpageAnalyseControllerTests : IDisposable
     {
         _mockService.Setup(s => s.GetUserByEmailAsync(It.IsAny<string>())).ReturnsAsync("123abc");
         _mockService.Setup(s => s.UploadFileAsync(It.IsAny<Stream>(), It.IsAny<string>())).ReturnsAsync("htmlFileId");
-        _mockService.Setup(s => s.CreateWebpageAndLLMFeedbackAsync(It.IsAny<Webpage>(), It.IsAny<LLMFeedback>())).ReturnsAsync("webpage123");
+        _mockService.Setup(s => s.CreateWebpageAndAnalysisResultAsync(It.IsAny<Webpage>(), It.IsAny<WebpageAnalysisResult>())).ReturnsAsync("webpage123");
 
         var result = await _controller.Upload(name: "test", email: "test@example.com");
         Assert.IsType<BadRequestObjectResult>(result);
@@ -184,7 +210,7 @@ public class WebpageAnalyseControllerTests : IDisposable
     {
         _mockService.Setup(s => s.GetUserByEmailAsync(It.IsAny<string>())).ReturnsAsync("123abc");
         _mockService.Setup(s => s.UploadFileAsync(It.IsAny<Stream>(), It.IsAny<string>())).ReturnsAsync("htmlFileId");
-        _mockService.Setup(s => s.CreateWebpageAndLLMFeedbackAsync(It.IsAny<Webpage>(), It.IsAny<LLMFeedback>())).ReturnsAsync("webpage123");
+        _mockService.Setup(s => s.CreateWebpageAndAnalysisResultAsync(It.IsAny<Webpage>(), It.IsAny<WebpageAnalysisResult>())).ReturnsAsync("webpage123");
 
         var result = await _controller.Upload(name: "test", email: "test@example.com", htmlFile: CreateHtmlFile(), url: "https://example.com");
         Assert.IsType<BadRequestObjectResult>(result);
@@ -195,7 +221,7 @@ public class WebpageAnalyseControllerTests : IDisposable
     {
         _mockService.Setup(s => s.GetUserByEmailAsync(It.IsAny<string>())).ReturnsAsync("123abc");
         _mockService.Setup(s => s.UploadFileAsync(It.IsAny<Stream>(), It.IsAny<string>())).ReturnsAsync("htmlFileId");
-        _mockService.Setup(s => s.CreateWebpageAndLLMFeedbackAsync(It.IsAny<Webpage>(), It.IsAny<LLMFeedback>())).ReturnsAsync("webpage123");
+        _mockService.Setup(s => s.CreateWebpageAndAnalysisResultAsync(It.IsAny<Webpage>(), It.IsAny<WebpageAnalysisResult>())).ReturnsAsync("webpage123");
 
         var result = await _controller.Upload(name: "test", email: "test@example.com", htmlFile: CreateFile("file.txt", "text/plain"));
         Assert.IsType<BadRequestObjectResult>(result);
@@ -206,7 +232,7 @@ public class WebpageAnalyseControllerTests : IDisposable
     {
         _mockService.Setup(s => s.GetUserByEmailAsync(It.IsAny<string>())).ReturnsAsync("123abc");
         _mockService.Setup(s => s.UploadFileAsync(It.IsAny<Stream>(), It.IsAny<string>())).ReturnsAsync("htmlFileId");
-        _mockService.Setup(s => s.CreateWebpageAndLLMFeedbackAsync(It.IsAny<Webpage>(), It.IsAny<LLMFeedback>())).ReturnsAsync("webpage123");
+        _mockService.Setup(s => s.CreateWebpageAndAnalysisResultAsync(It.IsAny<Webpage>(), It.IsAny<WebpageAnalysisResult>())).ReturnsAsync("webpage123");
 
         var result = await _controller.Upload(name: "test", email: "test@example.com", htmlFile: CreateHtmlFile(), specificationFile: CreateFile("spec.pdf", "application/pdf"));
         Assert.IsType<BadRequestObjectResult>(result);
@@ -217,7 +243,7 @@ public class WebpageAnalyseControllerTests : IDisposable
     {
         _mockService.Setup(s => s.GetUserByEmailAsync(It.IsAny<string>())).ReturnsAsync("123abc");
         _mockService.Setup(s => s.UploadFileAsync(It.IsAny<Stream>(), It.IsAny<string>())).ReturnsAsync("htmlFileId");
-        _mockService.Setup(s => s.CreateWebpageAndLLMFeedbackAsync(It.IsAny<Webpage>(), It.IsAny<LLMFeedback>())).ReturnsAsync("webpage123");
+        _mockService.Setup(s => s.CreateWebpageAndAnalysisResultAsync(It.IsAny<Webpage>(), It.IsAny<WebpageAnalysisResult>())).ReturnsAsync("webpage123");
 
         var result = await _controller.Upload(name: "test", email: "test@example.com", htmlFile: CreateHtmlFile(), designFile: CreateFile("design.exe", "application/octet-stream"));
         Assert.IsType<BadRequestObjectResult>(result);
@@ -228,7 +254,7 @@ public class WebpageAnalyseControllerTests : IDisposable
     public async Task Upload_UserNotFound_ReturnsUnauthorized()
     {
         _mockService.Setup(s => s.GetUserByEmailAsync(It.IsAny<string>())).ReturnsAsync((string?)null);
-        _mockService.Setup(s => s.CreateWebpageAndLLMFeedbackAsync(It.IsAny<Webpage>(), It.IsAny<LLMFeedback>())).ReturnsAsync("abc123");
+        _mockService.Setup(s => s.CreateWebpageAndAnalysisResultAsync(It.IsAny<Webpage>(), It.IsAny<WebpageAnalysisResult>())).ReturnsAsync("webpage123");
         _mockService.Setup(s => s.UploadFileAsync(It.IsAny<Stream>(), It.IsAny<string>())).ReturnsAsync("abc123");
 
         var result = await _controller.Upload(name: "test", email: "test@example.com", htmlFile: CreateHtmlFile());
@@ -240,7 +266,7 @@ public class WebpageAnalyseControllerTests : IDisposable
     {
         _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("123abc");
         _mockService.Setup(s => s.UploadFileAsync(It.IsAny<Stream>(), It.IsAny<string>())).ReturnsAsync("htmlFileId");
-        _mockService.Setup(s => s.CreateWebpageAndLLMFeedbackAsync(It.IsAny<Webpage>(), It.IsAny<LLMFeedback>())).ReturnsAsync("webpage123");
+        _mockService.Setup(s => s.CreateWebpageAndAnalysisResultAsync(It.IsAny<Webpage>(), It.IsAny<WebpageAnalysisResult>())).ReturnsAsync("webpage123");
 
         var result = await _controller.Upload(name: "MyPage", email: "test@example.com", htmlFile: CreateHtmlFile());
 
@@ -253,7 +279,7 @@ public class WebpageAnalyseControllerTests : IDisposable
     {
         _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("123abc");
         _mockService.Setup(s => s.UploadFileAsync(It.IsAny<Stream>(), It.IsAny<string>())).ReturnsAsync("htmlFileId");
-        _mockService.Setup(s => s.CreateWebpageAndLLMFeedbackAsync(It.IsAny<Webpage>(), It.IsAny<LLMFeedback>())).ReturnsAsync("webpage123");
+        _mockService.Setup(s => s.CreateWebpageAndAnalysisResultAsync(It.IsAny<Webpage>(), It.IsAny<WebpageAnalysisResult>())).ReturnsAsync("webpage123");
 
         var result = await _controller.Upload(name: "FromUrl", email: "test@example.com", url: "https://example.com");
 
@@ -266,7 +292,7 @@ public class WebpageAnalyseControllerTests : IDisposable
     {
         _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("123abc");
         _mockService.Setup(s => s.UploadFileAsync(It.IsAny<Stream>(), It.IsAny<string>())).ReturnsAsync("fileId");
-        _mockService.Setup(s => s.CreateWebpageAndLLMFeedbackAsync(It.IsAny<Webpage>(), It.IsAny<LLMFeedback>())).ReturnsAsync("webpage123");
+        _mockService.Setup(s => s.CreateWebpageAndAnalysisResultAsync(It.IsAny<Webpage>(), It.IsAny<WebpageAnalysisResult>())).ReturnsAsync("webpage123");
 
         var result = await _controller.Upload(
             name: "WithFiles",
@@ -348,35 +374,43 @@ public class WebpageAnalyseControllerTests : IDisposable
         Assert.Equal("Test 1", returnedList[0].Name);
     }
 
+
+    public class ViewWebpageResponse
+    {
+        public string HtmlContent { get; set; } = default!;
+        public WebpageAnalysisResult WebpageAnalysisResult { get; set; } = default!;
+    };
     [Fact]
-public async Task ViewWebpage_ValidId_ReturnsHtmlAndLLM()
-{
-    // Arrange
-    string webpageId = "abc123";
-    string email = "test@example.com";
-    _mockService.Setup(s => s.GetUserByEmailAsync(email)).ReturnsAsync("user123");
-    _mockService.Setup(s => s.GetWebpageContentAndLLMAsync(webpageId))
-                .ReturnsAsync(("<html>hi</html>", "LLM feedback"));
+    public async Task ViewWebpage_ValidId_ReturnsHtmlAndLLM()
+    {
+        // Arrange
+        string webpageId = "abc123";
+        string email = "test@example.com";
+        _mockService.Setup(s => s.GetUserByEmailAsync(email)).ReturnsAsync("user123");
+        _mockService.Setup(s => s.GetWebpageContentAndAnalysisAsync(webpageId))
+                        .ReturnsAsync(("<html>hi</html>", new WebpageAnalysisResult { Id = "webpage123", WebpageId = "abd123" }));
 
-    // Act
-    var result = await _controller.ViewWebpage(webpageId, email);
+        // Act
+        var result = await _controller.ViewWebpage(webpageId, email);
 
-    // Assert
-   var okResult = Assert.IsType<OkObjectResult>(result);
-    var dict = JsonConvert.DeserializeObject<Dictionary<string, string>>(
-        JsonConvert.SerializeObject(okResult.Value)
-    )!;
+        // Assert
+        var okResult = Assert.IsType<OkObjectResult>(result);
 
-    Assert.Contains("<html>hi</html>", dict["htmlContent"]);
-    Assert.Equal("LLM feedback", dict["llmResponse"]);
-}
+        var deserialized = JsonConvert.DeserializeObject<ViewWebpageResponse>(
+            JsonConvert.SerializeObject(okResult.Value)
+        )!;
+
+        Assert.Equal("<html>hi</html>", deserialized.HtmlContent);
+        Assert.Equal("webpage123", deserialized.WebpageAnalysisResult.Id);
+        Assert.Equal("abd123", deserialized.WebpageAnalysisResult.WebpageId);
+    }
 
     [Fact]
     public async Task ViewWebpage_UserNotFound_ReturnsUnauthorized()
     {
         _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync((string?)null);
-        _mockService.Setup(s => s.GetWebpageContentAndLLMAsync(It.IsAny<string>()))
-                .ReturnsAsync(("<html>hi</html>", "LLM feedback"));
+        _mockService.Setup(s => s.GetWebpageContentAndAnalysisAsync("abd123"))
+                .ReturnsAsync(("<html>hi</html>", new WebpageAnalysisResult { Id = "webpage123", WebpageId = "abd123" }));
 
         var result = await _controller.ViewWebpage("abc123", "test@example.com");
 
@@ -388,7 +422,8 @@ public async Task ViewWebpage_ValidId_ReturnsHtmlAndLLM()
     public async Task ViewWebpage_InvalidWebpage_ReturnsNotFound()
     {
         _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user123");
-        _mockService.Setup(s => s.GetWebpageContentAndLLMAsync("abc123")).ReturnsAsync((null, null));
+        _mockService.Setup(s => s.GetWebpageContentAndAnalysisAsync("abd123"))
+                .ReturnsAsync(("<html>hi</html>", new WebpageAnalysisResult { Id = "webpage123", WebpageId = "abd123" }));
 
         var result = await _controller.ViewWebpage("abc123", "test@example.com");
 

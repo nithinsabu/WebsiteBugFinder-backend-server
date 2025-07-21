@@ -2,8 +2,7 @@ using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 
 namespace WBF.Models;
-
-public class LLMFeedback
+public class WebpageAnalysisResult
 {
     [BsonId]
     [BsonRepresentation(BsonType.ObjectId)]
@@ -12,5 +11,6 @@ public class LLMFeedback
     [BsonRepresentation(BsonType.ObjectId)]
     public string WebpageId { get; set; } = null!;
 
-    public string? LLMResponse { get; set; } = null!;
+    public LLMResponse? LLMResponse { get; set; } = null;
+    public WebAuditResults? webAuditResults { get; set; } = null;
 }
