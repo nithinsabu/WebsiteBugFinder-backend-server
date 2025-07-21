@@ -18,11 +18,11 @@ public interface IWebpageAnalyseService
 {
     Task<string?> CreateUserAsync(string email);
     Task<string?> GetUserByEmailAsync(string email);
-    Task<string> CreateWebpageAndLLMFeedbackAsync(Webpage webpage, LLMFeedback llmFeedback);
+    Task<string> CreateWebpageAndAnalysisResultAsync(Webpage webpage, WebpageAnalysisResult llmFeedback);
     Task<string> UploadFileAsync(Stream stream, string filename);
     Task<Stream?> DownloadFileAsync(string fileId);
     Task<List<WebpageSummary>> ListWebpagesAsync(string userId);
-    Task<(string? HtmlContent, string? LLMResponse)> GetWebpageContentAndLLMAsync(string webpageId);
+    Task<(string? HtmlContent, WebpageAnalysisResult? webpageAnalysisResult)> GetWebpageContentAndAnalysisAsync(string webpageId);
     }
 
 public class WebpageAnalyseService : IWebpageAnalyseService
@@ -35,13 +35,13 @@ public class WebpageAnalyseService : IWebpageAnalyseService
     // Upload file (html, design, specs)
     private readonly IMongoCollection<Webpage> _webpagesCollection;
     private readonly IMongoCollection<User> _userCollection;
-    private readonly IMongoCollection<LLMFeedback> _llmFeedbackCollection;
+    private readonly IMongoCollection<WebpageAnalysisResult> _webpageAnalysisResultCollection;
     private readonly GridFSBucket _bucket;
     public WebpageAnalyseService(IMongoDatabase mongoDatabase, IOptions<WebpageAnalyseDatabaseSettings> webpageAnalyseDatabaseSettings)
     {
         _webpagesCollection = mongoDatabase.GetCollection<Webpage>(webpageAnalyseDatabaseSettings.Value.WebpagesCollectionName);
         _userCollection = mongoDatabase.GetCollection<User>(webpageAnalyseDatabaseSettings.Value.UsersCollectionName);
-        _llmFeedbackCollection = mongoDatabase.GetCollection<LLMFeedback>(webpageAnalyseDatabaseSettings.Value.LLMFeedbacksCollectionName);
+        _webpageAnalysisResultCollection = mongoDatabase.GetCollection<WebpageAnalysisResult>(webpageAnalyseDatabaseSettings.Value.WebpageAnalysisResultsCollectionName);
         _bucket = new GridFSBucket(mongoDatabase);
     }
 
@@ -62,11 +62,11 @@ public class WebpageAnalyseService : IWebpageAnalyseService
 
     }
 
-    public async Task<string> CreateWebpageAndLLMFeedbackAsync(Webpage webpage, LLMFeedback llmFeedback)
+    public async Task<string> CreateWebpageAndAnalysisResultAsync(Webpage webpage, WebpageAnalysisResult webpageAnalysisResult)
     {
         await _webpagesCollection.InsertOneAsync(webpage);
-        llmFeedback.WebpageId = webpage.Id;
-        await _llmFeedbackCollection.InsertOneAsync(llmFeedback);
+        webpageAnalysisResult.WebpageId = webpage.Id;
+        await _webpageAnalysisResultCollection.InsertOneAsync(webpageAnalysisResult);
         return webpage.Id;
     }
 
@@ -107,7 +107,7 @@ public class WebpageAnalyseService : IWebpageAnalyseService
             .ToListAsync();
     }
 
-    public async Task<(string? HtmlContent, string? LLMResponse)> GetWebpageContentAndLLMAsync(string webpageId)
+    public async Task<(string? HtmlContent, WebpageAnalysisResult? webpageAnalysisResult)> GetWebpageContentAndAnalysisAsync(string webpageId)
 {
     var webpage = await _webpagesCollection.Find(w => w.Id == webpageId).FirstOrDefaultAsync();
     if (webpage == null || string.IsNullOrEmpty(webpage.HtmlContentId))
@@ -120,7 +120,8 @@ public class WebpageAnalyseService : IWebpageAnalyseService
     using var reader = new StreamReader(stream);
     var html = await reader.ReadToEndAsync();
 
-    var llmFeedback = await _llmFeedbackCollection.Find(f => f.WebpageId == webpageId).FirstOrDefaultAsync();
-    return (html, llmFeedback?.LLMResponse);
+    var webpageAnalysisResult = await _webpageAnalysisResultCollection.Find(f => f.WebpageId == webpageId).FirstOrDefaultAsync();
+        if (webpageAnalysisResult == null) return (null, null);
+    return (html, webpageAnalysisResult);
 }
 }

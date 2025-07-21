@@ -1,3 +1,5 @@
 WBF.Tests
 bin
 obj
+.github
+.gitignore
