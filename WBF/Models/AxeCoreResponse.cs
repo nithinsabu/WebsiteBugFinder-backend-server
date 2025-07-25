@@ -14,8 +14,8 @@ public class AxeCoreNode
     [JsonPropertyName("Html")]
     public string? Html { get; set; }= null;
 
-    [BsonElement("Failure Summary")]
-    [JsonPropertyName("Failure Summary")]
+    [BsonElement("FailureSummary")]
+    [JsonPropertyName("FailureSummary")]
     public string? FailureSummary { get; set; }= null;
 }
 

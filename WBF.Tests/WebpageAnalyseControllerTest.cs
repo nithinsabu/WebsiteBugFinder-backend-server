@@ -15,6 +15,7 @@ using Castle.Core.Logging;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using Newtonsoft.Json;
+using PdfSharpCore;
 // using Microsoft.Extensions.Configuration;
 // using Castle.Core.Configuration;
 using Microsoft.Extensions.Options;
@@ -141,7 +142,23 @@ public class WebpageAnalyseControllerTests : IDisposable
         Assert.IsType<UnauthorizedResult>(result);
     }
 
+    [Fact]
+public async Task Login_Returns500_WhenExceptionIsThrown()
+{
+    // Arrange
+    string email = "test@example.com";
+    _mockService
+        .Setup(s => s.GetUserByEmailAsync(email))
+        .ThrowsAsync(new Exception("Simulated failure"));
 
+    // Act
+    var result = await _controller.Login(email);
+
+    // Assert
+    var status = Assert.IsType<ObjectResult>(result);
+    Assert.Equal(500, status.StatusCode);
+    Assert.Contains("Something went wrong: Simulated failure", status.Value.ToString());
+}
 
     [Fact]
     public async Task Signup_WithInvalidEmail_ReturnsBadRequest()
@@ -170,6 +187,40 @@ public class WebpageAnalyseControllerTests : IDisposable
         Assert.Equal(email, dict["email"]);
     }
 
+    [Fact]
+    public async Task Signup_ReturnsBadRequest_WhenUserAlreadyExists()
+    {
+        // Arrange
+        string email = "test@example.com";
+        _mockService
+            .Setup(s => s.CreateUserAsync(email))
+            .ReturnsAsync((string?)null); // Simulate user already exists
+
+        // Act
+        var result = await _controller.Signup(email);
+
+        // Assert
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal("Email already exists", badRequest.Value);
+    }
+
+    [Fact]
+    public async Task Signup_Returns500_WhenExceptionIsThrown()
+    {
+        // Arrange
+        string email = "test@example.com";
+        _mockService
+            .Setup(s => s.CreateUserAsync(email))
+            .ThrowsAsync(new Exception("Simulated failure"));
+
+        // Act
+        var result = await _controller.Signup(email);
+
+        // Assert
+        var statusResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(500, statusResult.StatusCode);
+        Assert.Contains("Something went wrong: Simulated failure", statusResult.Value?.ToString());
+    }
 
     //Upload Validation tests
     [Fact]
@@ -234,7 +285,7 @@ public class WebpageAnalyseControllerTests : IDisposable
         _mockService.Setup(s => s.UploadFileAsync(It.IsAny<Stream>(), It.IsAny<string>())).ReturnsAsync("htmlFileId");
         _mockService.Setup(s => s.CreateWebpageAndAnalysisResultAsync(It.IsAny<Webpage>(), It.IsAny<WebpageAnalysisResult>())).ReturnsAsync("webpage123");
 
-        var result = await _controller.Upload(name: "test", email: "test@example.com", htmlFile: CreateHtmlFile(), specificationFile: CreateFile("spec.pdf", "application/pdf"));
+        var result = await _controller.Upload(name: "test", email: "test@example.com", htmlFile: CreateHtmlFile(), specificationFile: CreateFile("spec.png", "images/png"));
         Assert.IsType<BadRequestObjectResult>(result);
     }
 
@@ -305,6 +356,41 @@ public class WebpageAnalyseControllerTests : IDisposable
         var ok = Assert.IsType<OkObjectResult>(result);
         Assert.Equal("webpage123", ok.Value);
     }
+
+    [Fact]
+    public async Task Upload_WithPdfSpec_ReturnsOk()
+    {
+        // Arrange
+        _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("123abc");
+        _mockService.Setup(s => s.UploadFileAsync(It.IsAny<Stream>(), It.IsAny<string>())).ReturnsAsync("fileId");
+        _mockService.Setup(s => s.CreateWebpageAndAnalysisResultAsync(It.IsAny<Webpage>(), It.IsAny<WebpageAnalysisResult>())).ReturnsAsync("webpage123");
+
+        var htmlFile = CreateHtmlFile();
+        var designFile = CreateFile("design.png", "image/png");
+
+        var pdfBytes = CreateSimplePdfWithText("Mock PDF Spec");
+        var pdfStream = new MemoryStream(pdfBytes);
+
+        var specificationFile = new FormFile(pdfStream, 0, pdfBytes.Length, "specification", "specification.pdf")
+        {
+            Headers = new HeaderDictionary(),
+            ContentType = "application/pdf"
+        };
+
+        // Act
+        var result = await _controller.Upload(
+            name: "UploadWithPDF",
+            email: "test@example.com",
+            htmlFile: htmlFile,
+            designFile: designFile,
+            specificationFile: specificationFile
+        );
+
+        // Assert
+        var ok = Assert.IsType<OkObjectResult>(result);
+        Assert.Equal("webpage123", ok.Value);
+    }
+
 
     [Fact]
     public async Task ListWebpages_InvalidEmail_ReturnsBadRequest()
@@ -431,8 +517,211 @@ public class WebpageAnalyseControllerTests : IDisposable
         Assert.Equal("Webpage or HTML content not found", notFound.Value);
     }
 
+    [Fact]
+    public async Task DownloadDesignFile_ReturnsBadRequest_IfEmailIsNull()
+    {
+        var result = await _controller.DownloadDesignFile("123", null);
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal("Email cannot be null", badRequest.Value);
+    }
 
+    [Fact]
+    public async Task DownloadDesignFile_ReturnsUnauthorized_IfUserIdIsNull()
+    {
+        _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync((string)null);
+        var result = await _controller.DownloadDesignFile("123", "test@example.com");
+        var unauthorized = Assert.IsType<UnauthorizedObjectResult>(result);
+        Assert.Equal("Please Sign up", unauthorized.Value);
+    }
 
+    [Fact]
+    public async Task DownloadDesignFile_ReturnsBadRequest_IfWebpageIdIsNull()
+    {
+        _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user1");
+        var result = await _controller.DownloadDesignFile(null, "test@example.com");
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal("WebpageId cannot be null", badRequest.Value);
+    }
+
+    [Fact]
+    public async Task DownloadDesignFile_ReturnsNotFound_IfWebpageIsNull()
+    {
+        _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user1");
+        _mockService.Setup(s => s.GetWebpageAsync("123", "user1")).ReturnsAsync((Webpage)null);
+
+        var result = await _controller.DownloadDesignFile("123", "test@example.com");
+        var notFound = Assert.IsType<NotFoundObjectResult>(result);
+        Assert.Equal("Webpage not found", notFound.Value);
+    }
+
+    [Fact]
+    public async Task DownloadDesignFile_ReturnsNotFound_IfDesignFileIdIsNull()
+    {
+        _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user1");
+        _mockService.Setup(s => s.GetWebpageAsync("123", "user1")).ReturnsAsync(new Webpage { DesignFileId = null });
+
+        var result = await _controller.DownloadDesignFile("123", "test@example.com");
+        var notFound = Assert.IsType<NotFoundObjectResult>(result);
+        Assert.Equal("Design File was not uploaded.", notFound.Value);
+    }
+
+    [Fact]
+    public async Task DownloadDesignFile_Returns500_IfStreamOrFileNameIsNull()
+    {
+        _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user1");
+        _mockService.Setup(s => s.GetWebpageAsync("123", "user1")).ReturnsAsync(new Webpage { DesignFileId = "file123" });
+        _mockService.Setup(s => s.DownloadFileAsync("file123")).ReturnsAsync(((Stream)null, null));
+
+        var result = await _controller.DownloadDesignFile("123", "test@example.com");
+        var status = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(500, status.StatusCode);
+        Assert.Contains("Something went wrong", status.Value.ToString());
+    }
+
+    [Fact]
+    public async Task DownloadDesignFile_ReturnsFile_WithValidInput()
+    {
+        var testStream = new MemoryStream(new byte[] { 1, 2, 3 });
+        var fileName = "mockfile.png";
+
+        _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user1");
+        _mockService.Setup(s => s.GetWebpageAsync("123", "user1")).ReturnsAsync(new Webpage { DesignFileId = "file123" });
+        _mockService.Setup(s => s.DownloadFileAsync("file123")).ReturnsAsync((testStream, fileName));
+
+        var result = await _controller.DownloadDesignFile("123", "test@example.com");
+
+        var fileResult = Assert.IsType<FileStreamResult>(result);
+        Assert.Equal("mockfile.png", fileResult.FileDownloadName);
+        Assert.Equal("image/png", fileResult.ContentType); // assuming png maps correctly
+        Assert.Same(testStream, fileResult.FileStream);
+    }
+
+    [Fact]
+    public async Task Returns_BadRequest_If_Email_Is_Null()
+    {
+        var result = await _controller.DownloadSpecifications("id", null);
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal("Email cannot be null", badRequest.Value);
+    }
+
+    [Fact]
+    public async Task Returns_Unauthorized_If_User_Not_Found()
+    {
+        _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync((string)null);
+
+        var result = await _controller.DownloadSpecifications("id", "test@example.com");
+        var unauthorized = Assert.IsType<UnauthorizedObjectResult>(result);
+        Assert.Equal("Please Sign up", unauthorized.Value);
+    }
+
+    [Fact]
+    public async Task Returns_BadRequest_If_WebpageId_Is_Null()
+    {
+        _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user");
+
+        var result = await _controller.DownloadSpecifications(null, "test@example.com");
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal("WebpageId cannot be null", badRequest.Value);
+    }
+
+    [Fact]
+    public async Task Returns_NotFound_If_Webpage_Not_Found()
+    {
+        _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user");
+        _mockService.Setup(s => s.GetWebpageAsync("id", "user")).ReturnsAsync((Webpage)null);
+
+        var result = await _controller.DownloadSpecifications("id", "test@example.com");
+        var notFound = Assert.IsType<NotFoundObjectResult>(result);
+        Assert.Equal("Webpage not found", notFound.Value);
+    }
+
+    [Fact]
+    public async Task Returns_NotFound_If_SpecificationFileId_Is_Null()
+    {
+        _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user");
+        _mockService.Setup(s => s.GetWebpageAsync("id", "user")).ReturnsAsync(new Webpage { SpecificationFileId = null });
+
+        var result = await _controller.DownloadSpecifications("id", "test@example.com");
+        var notFound = Assert.IsType<NotFoundObjectResult>(result);
+        Assert.Equal("Specification File was not uploaded.", notFound.Value);
+    }
+
+    [Fact]
+    public async Task Returns_500_If_Stream_Is_Null()
+    {
+        _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user");
+        _mockService.Setup(s => s.GetWebpageAsync("id", "user")).ReturnsAsync(new Webpage { SpecificationFileId = "fid" });
+        _mockService.Setup(s => s.DownloadFileAsync("fid")).ReturnsAsync((null as Stream, null));
+
+        var result = await _controller.DownloadSpecifications("id", "test@example.com");
+        var obj = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(500, obj.StatusCode);
+        Assert.Contains("Something went wrong", obj.Value.ToString());
+    }
+
+    public class SpecificationResponse
+    {
+        public string Content { get; set; }
+    }
+
+    [Fact]
+    public async Task Returns_Content_For_Text_File()
+    {
+        var content = "This is text content.";
+        var stream = new MemoryStream(Encoding.UTF8.GetBytes(content));
+
+        _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user");
+        _mockService.Setup(s => s.GetWebpageAsync("id", "user")).ReturnsAsync(new Webpage { SpecificationFileId = "fid" });
+        _mockService.Setup(s => s.DownloadFileAsync("fid")).ReturnsAsync((stream, "file.txt"));
+
+        var result = await _controller.DownloadSpecifications("id", "test@example.com");
+        var ok = Assert.IsType<OkObjectResult>(result);
+
+        string json = JsonConvert.SerializeObject(ok.Value);
+
+        var dict = JsonConvert.DeserializeObject<Dictionary<string, string>>(json);
+
+        Assert.Equal(content, dict["content"]);
+    }
+
+    [Fact]
+    public async Task DownloadSpecifications_ReturnsContent_ForPdfFile()
+    {
+        // Arrange
+        var pdfBytes = CreateSimplePdfWithText("This is from PDF");
+        var stream = new MemoryStream(pdfBytes);
+
+        _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user1");
+        _mockService.Setup(s => s.GetWebpageAsync("id", "user1")).ReturnsAsync(new Webpage
+        {
+            SpecificationFileId = "spec123"
+        });
+        _mockService.Setup(s => s.DownloadFileAsync("spec123")).ReturnsAsync((stream, "mock.pdf"));
+
+        // Act
+        var result = await _controller.DownloadSpecifications("id", "test@example.com");
+
+        // Assert
+        var ok = Assert.IsType<OkObjectResult>(result);
+        string json = JsonConvert.SerializeObject(ok.Value);
+        var dict = JsonConvert.DeserializeObject<Dictionary<string, string>>(json);
+
+        Assert.Contains("This is from PDF", dict["content"]);
+    }
+
+    private byte[] CreateSimplePdfWithText(string text)
+    {
+        using var mem = new MemoryStream();
+        var doc = new PdfSharpCore.Pdf.PdfDocument();
+        var page = doc.AddPage();
+        var gfx = PdfSharpCore.Drawing.XGraphics.FromPdfPage(page);
+        gfx.DrawString(text,
+            new PdfSharpCore.Drawing.XFont("Arial", 12),
+            PdfSharpCore.Drawing.XBrushes.Black,
+            new PdfSharpCore.Drawing.XPoint(50, 100));
+        doc.Save(mem, false);
+        return mem.ToArray();
+    }
 
 
 }
