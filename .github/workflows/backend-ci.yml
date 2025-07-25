@@ -1,4 +1,4 @@
-name: CI dotnet
+name: CI
 
 on:
   push:
@@ -11,11 +11,6 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
-    services:
-      mongodb:
-        image: mongo:latest
-        ports:
-          - 27017:27017
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -23,7 +18,7 @@ jobs:
       - name: Set up .NET
         uses: actions/setup-dotnet@v3
         with:
-          dotnet-version: '8.0.406'
+          dotnet-version: '8.0'
 
       - name: Restore Dependencies
         run: dotnet restore 

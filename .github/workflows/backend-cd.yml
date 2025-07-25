@@ -1,4 +1,4 @@
-name: CD dotnet
+name: CD
 on:
   push:
     branches:

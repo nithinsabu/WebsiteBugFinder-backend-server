@@ -20,9 +20,10 @@ public interface IWebpageAnalyseService
     Task<string?> GetUserByEmailAsync(string email);
     Task<string> CreateWebpageAndAnalysisResultAsync(Webpage webpage, WebpageAnalysisResult llmFeedback);
     Task<string> UploadFileAsync(Stream stream, string filename);
-    Task<Stream?> DownloadFileAsync(string fileId);
+    Task<(Stream? stream, string? fileName)> DownloadFileAsync(string fileId);
     Task<List<WebpageSummary>> ListWebpagesAsync(string userId);
     Task<(string? HtmlContent, WebpageAnalysisResult? webpageAnalysisResult)> GetWebpageContentAndAnalysisAsync(string webpageId);
+    Task<Webpage?> GetWebpageAsync(string webpageId, string userId);
     }
 
 public class WebpageAnalyseService : IWebpageAnalyseService
@@ -37,12 +38,19 @@ public class WebpageAnalyseService : IWebpageAnalyseService
     private readonly IMongoCollection<User> _userCollection;
     private readonly IMongoCollection<WebpageAnalysisResult> _webpageAnalysisResultCollection;
     private readonly GridFSBucket _bucket;
-    public WebpageAnalyseService(IMongoDatabase mongoDatabase, IOptions<WebpageAnalyseDatabaseSettings> webpageAnalyseDatabaseSettings)
+    public WebpageAnalyseService(IMongoDatabase mongoDatabase, IOptions<WebpageAnalyseDatabaseSettings> webpageAnalyseDatabaseSettings, GridFSBucket? bucket = null)
     {
         _webpagesCollection = mongoDatabase.GetCollection<Webpage>(webpageAnalyseDatabaseSettings.Value.WebpagesCollectionName);
         _userCollection = mongoDatabase.GetCollection<User>(webpageAnalyseDatabaseSettings.Value.UsersCollectionName);
         _webpageAnalysisResultCollection = mongoDatabase.GetCollection<WebpageAnalysisResult>(webpageAnalyseDatabaseSettings.Value.WebpageAnalysisResultsCollectionName);
+        if (bucket != null)
+        {
+            _bucket = bucket;
+        }
+        else
+        {
         _bucket = new GridFSBucket(mongoDatabase);
+        }
     }
 
     public async Task<string?> CreateUserAsync(string email)
@@ -75,19 +83,21 @@ public class WebpageAnalyseService : IWebpageAnalyseService
         return (await _bucket.UploadFromStreamAsync(filename, stream)).ToString();
     }
 
-    public async Task<Stream?> DownloadFileAsync(string fileId)
+    public async Task<(Stream? stream, string? fileName)> DownloadFileAsync(string fileId)
     {
         try
         {
             var objectId = ObjectId.Parse(fileId);
             var stream = new MemoryStream();
             await _bucket.DownloadToStreamAsync(objectId, stream);
+            var fileInfo = await _bucket.Find(Builders<GridFSFileInfo>.Filter.Eq(f => f.Id, objectId)).FirstOrDefaultAsync();
             stream.Seek(0, SeekOrigin.Begin);
-            return stream;
+            string? fileName = fileInfo.Filename;
+            return (stream, fileName);
         }
         catch
         {
-            return null;
+            return (null, null);
         }
 
     }
@@ -108,20 +118,27 @@ public class WebpageAnalyseService : IWebpageAnalyseService
     }
 
     public async Task<(string? HtmlContent, WebpageAnalysisResult? webpageAnalysisResult)> GetWebpageContentAndAnalysisAsync(string webpageId)
-{
-    var webpage = await _webpagesCollection.Find(w => w.Id == webpageId).FirstOrDefaultAsync();
-    if (webpage == null || string.IsNullOrEmpty(webpage.HtmlContentId))
-        return (null, null);
+    {
+        var webpage = await _webpagesCollection.Find(w => w.Id == webpageId).FirstOrDefaultAsync();
+        if (webpage == null || string.IsNullOrEmpty(webpage.HtmlContentId))
+            return (null, null);
 
-    var stream = await DownloadFileAsync(webpage.HtmlContentId);
-    if (stream == null)
-        return (null, null);
+        var result = await DownloadFileAsync(webpage.HtmlContentId);
+        Stream? stream = result.stream;
+        if (stream == null)
+            return (null, null);
 
-    using var reader = new StreamReader(stream);
-    var html = await reader.ReadToEndAsync();
+        using var reader = new StreamReader(stream);
+        var html = await reader.ReadToEndAsync();
 
-    var webpageAnalysisResult = await _webpageAnalysisResultCollection.Find(f => f.WebpageId == webpageId).FirstOrDefaultAsync();
+        var webpageAnalysisResult = await _webpageAnalysisResultCollection.Find(f => f.WebpageId == webpageId).FirstOrDefaultAsync();
         if (webpageAnalysisResult == null) return (null, null);
-    return (html, webpageAnalysisResult);
-}
+        return (html, webpageAnalysisResult);
+    }
+
+    public async Task<Webpage?> GetWebpageAsync(string webpageId, string userId)
+    {
+        if (webpageId == null || userId == null) return null;
+        return await _webpagesCollection.Find(webpage => webpage.Id == webpageId && webpage.UserId == userId).FirstOrDefaultAsync(); ;
+    }
 }

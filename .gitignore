@@ -53,3 +53,8 @@ CodeCoverage/
 TestResult.xml
 nunit-*.xml
 appsettings.Development.json
+
+*vscode*
+TestResults
+*.info
+coveragereport
