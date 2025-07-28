@@ -234,86 +234,81 @@ public class WebpageAnalyseServiceTests
 
 
     [Fact]
-    public async Task CreateWebpageAndAnalysisResultAsync_WhenCalled_InsertsWebpageAndAnalysisResult()
-    {
-        // Arrange
-        var mockSession = new Mock<IClientSessionHandle>();
-        _mockDb.Setup(db => db.Client.StartSessionAsync(null, default))
-               .ReturnsAsync(mockSession.Object);
-        var insertedWebpage = new Webpage(); // no ID yet
-        var expectedWebpageId = ObjectId.GenerateNewId().ToString(); // simulate MongoDB generated ID
-        var insertedAnalysis = new WebpageAnalysisResult();
+public async Task CreateWebpageAndAnalysisResultAsync_WhenCalled_InsertsWebpageAndAnalysisResult()
+{
+    // Arrange
+    var insertedWebpage = new Webpage();
+    var expectedWebpageId = ObjectId.GenerateNewId().ToString(); // simulate MongoDB generated ID
+    var insertedAnalysis = new WebpageAnalysisResult();
 
-        _mockWebpages
-            .Setup(x => x.InsertOneAsync(It.IsAny<IClientSessionHandle>(), insertedWebpage, null, default))
-            .Returns(Task.CompletedTask)
-            .Callback<IClientSessionHandle, Webpage, InsertOneOptions, CancellationToken>((_, w, _, _) =>
-            {
-                w.Id = expectedWebpageId; // simulate auto-ID assignment by MongoDB
-            });
+    _mockWebpages
+        .Setup(x => x.InsertOneAsync(insertedWebpage, null, default))
+        .Returns(Task.CompletedTask)
+        .Callback<Webpage, InsertOneOptions, CancellationToken>((w, _, _) =>
+        {
+            w.Id = expectedWebpageId; // simulate ID assignment
+        });
 
-        _mockAnalysisResults
-            .Setup(x => x.InsertOneAsync(It.IsAny<IClientSessionHandle>(), It.IsAny<WebpageAnalysisResult>(), null, default))
-            .Returns(Task.CompletedTask)
-            .Callback<IClientSessionHandle, WebpageAnalysisResult, InsertOneOptions, CancellationToken>((_, analysis, _, _) =>
-            {
-                insertedAnalysis = analysis;
-            });
+    _mockAnalysisResults
+        .Setup(x => x.InsertOneAsync(It.IsAny<WebpageAnalysisResult>(), null, default))
+        .Returns(Task.CompletedTask)
+        .Callback<WebpageAnalysisResult, InsertOneOptions, CancellationToken>((analysis, _, _) =>
+        {
+            insertedAnalysis = analysis;
+        });
 
-        // Act
-        var result = await _service.CreateWebpageAndAnalysisResultAsync(insertedWebpage, insertedAnalysis);
+    // Act
+    var result = await _service.CreateWebpageAndAnalysisResultAsync(insertedWebpage, insertedAnalysis);
 
-        // Assert
-        Assert.Equal(expectedWebpageId, result);
-        Assert.Equal(expectedWebpageId, insertedAnalysis.WebpageId);
-        _mockWebpages.Verify(x => x.InsertOneAsync(mockSession.Object, insertedWebpage, null, default), Times.Once);
-        _mockAnalysisResults.Verify(x => x.InsertOneAsync(mockSession.Object, insertedAnalysis, null, default), Times.Once);
-    }
+    // Assert
+    Assert.Equal(expectedWebpageId, result);
+    Assert.Equal(expectedWebpageId, insertedAnalysis.WebpageId);
+
+    _mockWebpages.Verify(x => x.InsertOneAsync(insertedWebpage, null, default), Times.Once);
+    _mockAnalysisResults.Verify(x => x.InsertOneAsync(insertedAnalysis, null, default), Times.Once);
+}
 
 
     [Fact]
-    public async Task CreateWebpageAndAnalysisResultAsync_WhenWebpageInsertFails_ThrowsException()
-    {
-        // Arrange
-        var mockSession = new Mock<IClientSessionHandle>();
-        _mockDb.Setup(db => db.Client.StartSessionAsync(null, default))
-               .ReturnsAsync(mockSession.Object);
-        var webpage = new Webpage();
-        var analysisResult = new WebpageAnalysisResult();
+public async Task CreateWebpageAndAnalysisResultAsync_WhenWebpageInsertFails_ThrowsException()
+{
+    // Arrange
+    var webpage = new Webpage();
+    var analysisResult = new WebpageAnalysisResult();
 
-        _mockWebpages
-            .Setup(x => x.InsertOneAsync(It.IsAny<IClientSessionHandle>(), webpage, null, default))
-            .ThrowsAsync(new Exception("DB insert failed"));
+    _mockWebpages
+        .Setup(x => x.InsertOneAsync(webpage, null, default))
+        .ThrowsAsync(new Exception("DB insert failed"));
 
-        // Act & Assert
-        var ex = await Assert.ThrowsAsync<Exception>(() =>
-            _service.CreateWebpageAndAnalysisResultAsync(webpage, analysisResult));
+    // Act & Assert
+    var ex = await Assert.ThrowsAsync<Exception>(() =>
+        _service.CreateWebpageAndAnalysisResultAsync(webpage, analysisResult));
 
-        Assert.Equal("DB insert failed", ex.Message);
+    Assert.Equal("DB insert failed", ex.Message);
+}
 
-    }
+[Fact]
+public async Task CreateWebpageAndAnalysisResultAsync_WhenWebpageAnalysisResultInsertFails_ThrowsException()
+{
+    // Arrange
+    var webpage = new Webpage { Id = ObjectId.GenerateNewId().ToString() };
+    var analysisResult = new WebpageAnalysisResult();
 
-    [Fact]
-    public async Task CreateWebpageAndAnalysisResultAsync_WhenWebpageAnalysisResultInsertFails_ThrowsException()
-    {
-        // Arrange
-        var mockSession = new Mock<IClientSessionHandle>();
-        _mockDb.Setup(db => db.Client.StartSessionAsync(null, default))
-               .ReturnsAsync(mockSession.Object);
-        var webpage = new Webpage();
-        var analysisResult = new WebpageAnalysisResult();
+    _mockWebpages
+        .Setup(x => x.InsertOneAsync(webpage, null, default))
+        .Returns(Task.CompletedTask);
 
-        _mockAnalysisResults
-            .Setup(x => x.InsertOneAsync(It.IsAny<IClientSessionHandle>(), It.IsAny<WebpageAnalysisResult>(), null, default))
-            .ThrowsAsync(new Exception("DB insert failed"));
+    _mockAnalysisResults
+        .Setup(x => x.InsertOneAsync(It.IsAny<WebpageAnalysisResult>(), null, default))
+        .ThrowsAsync(new Exception("DB insert failed"));
 
-        // Act & Assert
-        var ex = await Assert.ThrowsAsync<Exception>(() =>
-            _service.CreateWebpageAndAnalysisResultAsync(webpage, analysisResult));
+    // Act & Assert
+    var ex = await Assert.ThrowsAsync<Exception>(() =>
+        _service.CreateWebpageAndAnalysisResultAsync(webpage, analysisResult));
 
-        Assert.Equal("DB insert failed", ex.Message);
+    Assert.Equal("DB insert failed", ex.Message);
+}
 
-    }
 
 
     //UploadFileAsync
