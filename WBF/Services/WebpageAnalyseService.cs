@@ -76,21 +76,17 @@ public class WebpageAnalyseService : IWebpageAnalyseService
 
     public async Task<string> CreateWebpageAndAnalysisResultAsync(Webpage webpage, WebpageAnalysisResult webpageAnalysisResult)
     {
-        using var session = await _mongoDatabase.Client.StartSessionAsync();
-        session.StartTransaction();
 
-        try
+         try
         {
-            await _webpagesCollection.InsertOneAsync(session, webpage);
+            await _webpagesCollection.InsertOneAsync(webpage);
             webpageAnalysisResult.WebpageId = webpage.Id;
-            await _webpageAnalysisResultCollection.InsertOneAsync(session, webpageAnalysisResult);
+            await _webpageAnalysisResultCollection.InsertOneAsync( webpageAnalysisResult);
 
-            await session.CommitTransactionAsync();
             return webpage.Id;
         }
         catch(Exception e)
         {
-            await session.AbortTransactionAsync();
             throw e;
         }
     }
