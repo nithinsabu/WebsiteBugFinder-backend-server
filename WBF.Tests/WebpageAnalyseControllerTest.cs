@@ -19,6 +19,7 @@ using PdfSharpCore;
 // using Microsoft.Extensions.Configuration;
 // using Castle.Core.Configuration;
 using Microsoft.Extensions.Options;
+using MongoDB.Bson;
 namespace WBF.Tests;
 
 public class WebpageAnalyseControllerTests : IDisposable
@@ -116,7 +117,26 @@ public class WebpageAnalyseControllerTests : IDisposable
         var badRequest = Assert.IsType<BadRequestObjectResult>(result);
         Assert.Equal("Invalid email", badRequest.Value);
     }
+    [Fact]
+    public async Task Login_WithNullEmail_ReturnsBadRequest()
+    {
+        _mockService.Setup(s => s.GetUserByEmailAsync(It.IsAny<string>()))
+                    .ReturnsAsync("abc123");
+        var result = await _controller.Login(null);
 
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal("Email cannot be Null", badRequest.Value);
+    }
+    [Fact]
+    public async Task Login_WithLongEmail_ReturnsBadRequest()
+    {
+        _mockService.Setup(s => s.GetUserByEmailAsync(It.IsAny<string>()))
+                    .ReturnsAsync("abc123");
+        var result = await _controller.Login("averylongmockemailaddress_for_testing_purposes_only_that_exceeds_100_characters_example_1234567890@exampledomain.com");
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal("Email is too long", badRequest.Value);
+    }
     [Fact]
     public async Task Login_UserExists_ReturnsOkWithEmail()
     {
@@ -144,22 +164,22 @@ public class WebpageAnalyseControllerTests : IDisposable
     }
 
     [Fact]
-public async Task Login_Returns500_WhenExceptionIsThrown()
-{
-    // Arrange
-    string email = "test@example.com";
-    _mockService
-        .Setup(s => s.GetUserByEmailAsync(email))
-        .ThrowsAsync(new Exception("Simulated failure"));
+    public async Task Login_Returns500_WhenExceptionIsThrown()
+    {
+        // Arrange
+        string email = "test@example.com";
+        _mockService
+            .Setup(s => s.GetUserByEmailAsync(email))
+            .ThrowsAsync(new Exception("Simulated failure"));
 
-    // Act
-    var result = await _controller.Login(email);
+        // Act
+        var result = await _controller.Login(email);
 
-    // Assert
-    var status = Assert.IsType<ObjectResult>(result);
-    Assert.Equal(500, status.StatusCode);
-    Assert.Contains("Something went wrong: Simulated failure", status.Value.ToString());
-}
+        // Assert
+        var status = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(500, status.StatusCode);
+        Assert.Contains("Something went wrong.", status.Value.ToString());
+    }
 
     //Signup
     [Fact]
@@ -171,6 +191,28 @@ public async Task Login_Returns500_WhenExceptionIsThrown()
 
         var badRequest = Assert.IsType<BadRequestObjectResult>(result);
         Assert.Equal("Invalid email", badRequest.Value);
+    }
+
+    [Fact]
+    public async Task Signup_WithNullEmail_ReturnsBadRequest()
+    {
+        _mockService.Setup(s => s.CreateUserAsync(It.IsAny<string>()))
+                    .ReturnsAsync("userId");
+        var result = await _controller.Signup(null);
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal("Email cannot be Null", badRequest.Value);
+    }
+
+    [Fact]
+    public async Task Signup_WithLongEmail_ReturnsBadRequest()
+    {
+        _mockService.Setup(s => s.CreateUserAsync(It.IsAny<string>()))
+                    .ReturnsAsync("userId");
+        var result = await _controller.Signup("averylongmockemailaddress_for_testing_purposes_only_that_exceeds_100_characters_example_1234567890@exampledomain.com");
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal("Email is too long", badRequest.Value);
     }
 
     [Fact]
@@ -221,10 +263,11 @@ public async Task Login_Returns500_WhenExceptionIsThrown()
         // Assert
         var statusResult = Assert.IsType<ObjectResult>(result);
         Assert.Equal(500, statusResult.StatusCode);
-        Assert.Contains("Something went wrong: Simulated failure", statusResult.Value?.ToString());
+        Assert.Contains("Something went wrong.", statusResult.Value?.ToString());
     }
 
     //Upload
+
     [Fact]
     public async Task Upload_MissingEmail_ReturnsBadRequest()
     {
@@ -233,6 +276,68 @@ public async Task Login_Returns500_WhenExceptionIsThrown()
         _mockService.Setup(s => s.CreateWebpageAndAnalysisResultAsync(It.IsAny<Webpage>(), It.IsAny<WebpageAnalysisResult>())).ReturnsAsync("webpage123");
 
         var result = await _controller.Upload(name: "test", email: null!);
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task Upload_InvalidEmailLength_ReturnsBadRequest()
+    {
+        _mockService.Setup(s => s.GetUserByEmailAsync(It.IsAny<string>())).ReturnsAsync("123abc");
+        _mockService.Setup(s => s.UploadFileAsync(It.IsAny<Stream>(), It.IsAny<string>())).ReturnsAsync("htmlFileId");
+        _mockService.Setup(s => s.CreateWebpageAndAnalysisResultAsync(It.IsAny<Webpage>(), It.IsAny<WebpageAnalysisResult>())).ReturnsAsync("webpage123");
+
+        var longEmail = new string('a', 101) + "@example.com";
+        var result = await _controller.Upload(name: "test", email: longEmail);
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task Upload_NameTooLong_ReturnsBadRequest()
+    {
+        _mockService.Setup(s => s.GetUserByEmailAsync(It.IsAny<string>())).ReturnsAsync("123abc");
+        _mockService.Setup(s => s.UploadFileAsync(It.IsAny<Stream>(), It.IsAny<string>())).ReturnsAsync("htmlFileId");
+        _mockService.Setup(s => s.CreateWebpageAndAnalysisResultAsync(It.IsAny<Webpage>(), It.IsAny<WebpageAnalysisResult>())).ReturnsAsync("webpage123");
+
+        var longName = new string('n', 256); // Assuming 255 char limit
+        var result = await _controller.Upload(name: longName, email: "test@example.com");
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task Upload_UrlTooLong_ReturnsBadRequest()
+    {
+        _mockService.Setup(s => s.GetUserByEmailAsync(It.IsAny<string>())).ReturnsAsync("123abc");
+        _mockService.Setup(s => s.UploadFileAsync(It.IsAny<Stream>(), It.IsAny<string>())).ReturnsAsync("htmlFileId");
+        _mockService.Setup(s => s.CreateWebpageAndAnalysisResultAsync(It.IsAny<Webpage>(), It.IsAny<WebpageAnalysisResult>())).ReturnsAsync("webpage123");
+
+        var longUrl = "http://" + new string('u', 2048); // Assuming 2048 char limit
+        var result = await _controller.Upload(name: "test", email: "test@example.com", url: longUrl);
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task Upload_DesignFileTooLarge_ReturnsBadRequest()
+    {
+        _mockService.Setup(s => s.GetUserByEmailAsync(It.IsAny<string>())).ReturnsAsync("123abc");
+        _mockService.Setup(s => s.UploadFileAsync(It.IsAny<Stream>(), It.IsAny<string>())).ReturnsAsync("htmlFileId");
+        _mockService.Setup(s => s.CreateWebpageAndAnalysisResultAsync(It.IsAny<Webpage>(), It.IsAny<WebpageAnalysisResult>())).ReturnsAsync("webpage123");
+
+        var largeDesignFile = new FormFile(new MemoryStream(new byte[6 * 1024 * 1024]), 0, 6 * 1024 * 1024, "designFile", "design.png"); // 6 MB
+
+        var result = await _controller.Upload(name: "test", email: "test@example.com", designFile: largeDesignFile);
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task Upload_SpecFileTooLarge_ReturnsBadRequest()
+    {
+        _mockService.Setup(s => s.GetUserByEmailAsync(It.IsAny<string>())).ReturnsAsync("123abc");
+        _mockService.Setup(s => s.UploadFileAsync(It.IsAny<Stream>(), It.IsAny<string>())).ReturnsAsync("htmlFileId");
+        _mockService.Setup(s => s.CreateWebpageAndAnalysisResultAsync(It.IsAny<Webpage>(), It.IsAny<WebpageAnalysisResult>())).ReturnsAsync("webpage123");
+
+        var largeSpecFile = new FormFile(new MemoryStream(new byte[11 * 1024 * 1024]), 0, 11 * 1024 * 1024, "specFile", "spec.pdf"); // 11 MB
+
+        var result = await _controller.Upload(name: "test", email: "test@example.com", specificationFile: largeSpecFile);
         Assert.IsType<BadRequestObjectResult>(result);
     }
 
@@ -394,22 +499,21 @@ public async Task Login_Returns500_WhenExceptionIsThrown()
     }
 
     //ListWebpages
-    [Fact]
-    public async Task ListWebpages_InvalidEmail_ReturnsBadRequest()
+    [Theory]
+    [InlineData(null)] // null email
+    [InlineData("")] // empty string
+    [InlineData("   ")] // whitespace
+    [InlineData("invalid-email")] // invalid format
+    [InlineData("reallylongemailaddress_thatexceedsonehundredcharacters_blahblahblahreallylongemailaddress_thatexceedsonehundredcharacters_blahblahblah@example.com")] // >100 chars
+    public async Task ListWebpages_InvalidEmail_ReturnsBadRequest(string invalidEmail)
     {
         _mockService.Setup(s => s.GetUserByEmailAsync(It.IsAny<string>()))
                     .ReturnsAsync("user123");
 
-        var expectedList = new List<WebpageSummary>
-    {
-        new WebpageSummary { Id = "id1", Name = "Test 1" },
-        new WebpageSummary { Id = "id2", Name = "Test 2" }
-    };
-
         _mockService.Setup(s => s.ListWebpagesAsync(It.IsAny<string>()))
-                    .ReturnsAsync(expectedList);
+                    .ReturnsAsync(new List<WebpageSummary>());
 
-        var result = await _controller.ListWebpages("invalid-email");
+        var result = await _controller.ListWebpages(invalidEmail);
 
         var badRequest = Assert.IsType<BadRequestObjectResult>(result);
         Assert.Equal("Invalid email", badRequest.Value);
@@ -469,15 +573,50 @@ public async Task Login_Returns500_WhenExceptionIsThrown()
         public string HtmlContent { get; set; } = default!;
         public WebpageAnalysisResult WebpageAnalysisResult { get; set; } = default!;
     };
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("invalid-email-format")]
+    [InlineData("thisisaverylongemailaddressthatexceedsthehundredcharacterslimitthisisaverylongemailaddressthatexceedsthehundredcharacterslimit@exampleveryverylongdomain.com")]
+    public async Task ViewWebpage_InvalidEmail_ReturnsBadRequest(string invalidEmail)
+    {
+        _mockService.Setup(s => s.GetUserByEmailAsync(It.IsAny<string>())).ReturnsAsync("user123");
+
+        var result = await _controller.ViewWebpage("60d21b4667d0d8992e610c85", invalidEmail);
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal("Invalid email", badRequest.Value);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("not-an-object-id")]
+    [InlineData("123")] // too short
+    [InlineData("zzzzzzzzzzzzzzzzzzzzzzzz")] // invalid hex
+    public async Task ViewWebpage_InvalidId_ReturnsBadRequest(string invalidId)
+    {
+        _mockService.Setup(s => s.GetUserByEmailAsync(It.IsAny<string>())).ReturnsAsync("user123");
+
+        var result = await _controller.ViewWebpage(invalidId, "valid@example.com");
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal("Invalid ID", badRequest.Value);
+    }
+
+
     [Fact]
-    public async Task ViewWebpage_ValidId_ReturnsHtmlAndLLM()
+    public async Task ViewWebpage_ValidId_ReturnsHtmlAndAnalysisResult()
     {
         // Arrange
-        string webpageId = "abc123";
+        string webpageId = ObjectId.GenerateNewId().ToString();
         string email = "test@example.com";
         _mockService.Setup(s => s.GetUserByEmailAsync(email)).ReturnsAsync("user123");
         _mockService.Setup(s => s.GetWebpageContentAndAnalysisAsync(webpageId))
-                        .ReturnsAsync(("<html>hi</html>", new WebpageAnalysisResult { Id = "webpage123", WebpageId = "abd123" }));
+                        .ReturnsAsync(("<html>hi</html>", new WebpageAnalysisResult { Id = "webpage123", WebpageId = webpageId }));
 
         // Act
         var result = await _controller.ViewWebpage(webpageId, email);
@@ -491,17 +630,19 @@ public async Task Login_Returns500_WhenExceptionIsThrown()
 
         Assert.Equal("<html>hi</html>", deserialized.HtmlContent);
         Assert.Equal("webpage123", deserialized.WebpageAnalysisResult.Id);
-        Assert.Equal("abd123", deserialized.WebpageAnalysisResult.WebpageId);
+        Assert.Equal(webpageId, deserialized.WebpageAnalysisResult.WebpageId);
     }
 
     [Fact]
     public async Task ViewWebpage_UserNotFound_ReturnsUnauthorized()
     {
-        _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync((string?)null);
-        _mockService.Setup(s => s.GetWebpageContentAndAnalysisAsync("abd123"))
-                .ReturnsAsync(("<html>hi</html>", new WebpageAnalysisResult { Id = "webpage123", WebpageId = "abd123" }));
+        string webpageId = ObjectId.GenerateNewId().ToString();
 
-        var result = await _controller.ViewWebpage("abc123", "test@example.com");
+        _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync((string?)null);
+        _mockService.Setup(s => s.GetWebpageContentAndAnalysisAsync(webpageId))
+                .ReturnsAsync(("<html>hi</html>", new WebpageAnalysisResult { Id = "webpage123", WebpageId = webpageId }));
+
+        var result = await _controller.ViewWebpage(webpageId, "test@example.com");
 
         var unauthorized = Assert.IsType<UnauthorizedObjectResult>(result);
         Assert.Equal("Please Sign up", unauthorized.Value);
@@ -510,30 +651,61 @@ public async Task Login_Returns500_WhenExceptionIsThrown()
     [Fact]
     public async Task ViewWebpage_InvalidWebpage_ReturnsNotFound()
     {
-        _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user123");
-        _mockService.Setup(s => s.GetWebpageContentAndAnalysisAsync("abd123"))
-                .ReturnsAsync(("<html>hi</html>", new WebpageAnalysisResult { Id = "webpage123", WebpageId = "abd123" }));
+        string webpageId = ObjectId.GenerateNewId().ToString();
 
-        var result = await _controller.ViewWebpage("abc123", "test@example.com");
+        _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user123");
+        _mockService.Setup(s => s.GetWebpageContentAndAnalysisAsync("abc123"))
+                .ReturnsAsync(("<html>hi</html>", new WebpageAnalysisResult { Id = "webpage123", WebpageId = webpageId }));
+
+        var result = await _controller.ViewWebpage(webpageId, "test@example.com");
 
         var notFound = Assert.IsType<NotFoundObjectResult>(result);
         Assert.Equal("Webpage or HTML content not found", notFound.Value);
     }
 
     //DownloadDesignFile
-    [Fact]
-    public async Task DownloadDesignFile_ReturnsBadRequest_IfEmailIsNull()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("invalid-email")]
+    [InlineData("thisisaverylongemailaddressthatexceedsthehundredcharacterslimitthisisaverylongemailaddressthatexceedsthehundredcharacterslimit@exampleveryverylongdomain.com")]
+    public async Task DownloadDesignFile_InvalidEmail_ReturnsBadRequest(string invalidEmail)
     {
-        var result = await _controller.DownloadDesignFile("123", null);
+        _mockService.Setup(s => s.GetUserByEmailAsync(It.IsAny<string>()))
+                    .ReturnsAsync("user123");
+
+        var result = await _controller.DownloadDesignFile("60d21b4667d0d8992e610c85", invalidEmail);
+
         var badRequest = Assert.IsType<BadRequestObjectResult>(result);
-        Assert.Equal("Email cannot be null", badRequest.Value);
+        Assert.Equal("Invalid email", badRequest.Value);
     }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("not-a-valid-objectid")]
+    [InlineData("123")]
+    [InlineData("zzzzzzzzzzzzzzzzzzzzzzzz")]
+    public async Task DownloadDesignFile_InvalidId_ReturnsBadRequest(string invalidId)
+    {
+        _mockService.Setup(s => s.GetUserByEmailAsync(It.IsAny<string>()))
+                    .ReturnsAsync("user123");
+
+        var result = await _controller.DownloadDesignFile(invalidId, "valid@example.com");
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal("Invalid ID", badRequest.Value);
+    }
+
+
 
     [Fact]
     public async Task DownloadDesignFile_ReturnsUnauthorized_IfUserIdIsNull()
     {
         _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync((string)null);
-        var result = await _controller.DownloadDesignFile("123", "test@example.com");
+        var result = await _controller.DownloadDesignFile("60f7d2a2c2a62b3b6c8e4f12", "test@example.com");
         var unauthorized = Assert.IsType<UnauthorizedObjectResult>(result);
         Assert.Equal("Please Sign up", unauthorized.Value);
     }
@@ -544,16 +716,16 @@ public async Task Login_Returns500_WhenExceptionIsThrown()
         _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user1");
         var result = await _controller.DownloadDesignFile(null, "test@example.com");
         var badRequest = Assert.IsType<BadRequestObjectResult>(result);
-        Assert.Equal("WebpageId cannot be null", badRequest.Value);
+        Assert.Equal("Invalid ID", badRequest.Value);
     }
 
     [Fact]
     public async Task DownloadDesignFile_ReturnsNotFound_IfWebpageIsNull()
     {
         _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user1");
-        _mockService.Setup(s => s.GetWebpageAsync("123", "user1")).ReturnsAsync((Webpage)null);
+        _mockService.Setup(s => s.GetWebpageAsync("60f7d2a2c2a62b3b6c8e4f12", "user1")).ReturnsAsync((Webpage)null);
 
-        var result = await _controller.DownloadDesignFile("123", "test@example.com");
+        var result = await _controller.DownloadDesignFile("60f7d2a2c2a62b3b6c8e4f12", "test@example.com");
         var notFound = Assert.IsType<NotFoundObjectResult>(result);
         Assert.Equal("Webpage not found", notFound.Value);
     }
@@ -562,9 +734,9 @@ public async Task Login_Returns500_WhenExceptionIsThrown()
     public async Task DownloadDesignFile_ReturnsNotFound_IfDesignFileIdIsNull()
     {
         _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user1");
-        _mockService.Setup(s => s.GetWebpageAsync("123", "user1")).ReturnsAsync(new Webpage { DesignFileId = null });
+        _mockService.Setup(s => s.GetWebpageAsync("60f7d2a2c2a62b3b6c8e4f12", "user1")).ReturnsAsync(new Webpage { DesignFileId = null });
 
-        var result = await _controller.DownloadDesignFile("123", "test@example.com");
+        var result = await _controller.DownloadDesignFile("60f7d2a2c2a62b3b6c8e4f12", "test@example.com");
         var notFound = Assert.IsType<NotFoundObjectResult>(result);
         Assert.Equal("Design File was not uploaded.", notFound.Value);
     }
@@ -573,10 +745,10 @@ public async Task Login_Returns500_WhenExceptionIsThrown()
     public async Task DownloadDesignFile_Returns500_IfStreamOrFileNameIsNull()
     {
         _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user1");
-        _mockService.Setup(s => s.GetWebpageAsync("123", "user1")).ReturnsAsync(new Webpage { DesignFileId = "file123" });
+        _mockService.Setup(s => s.GetWebpageAsync("60f7d2a2c2a62b3b6c8e4f12", "user1")).ReturnsAsync(new Webpage { DesignFileId = "file123" });
         _mockService.Setup(s => s.DownloadFileAsync("file123")).ReturnsAsync(((Stream)null, null));
 
-        var result = await _controller.DownloadDesignFile("123", "test@example.com");
+        var result = await _controller.DownloadDesignFile("60f7d2a2c2a62b3b6c8e4f12", "test@example.com");
         var status = Assert.IsType<ObjectResult>(result);
         Assert.Equal(500, status.StatusCode);
         Assert.Contains("Something went wrong", status.Value.ToString());
@@ -589,10 +761,10 @@ public async Task Login_Returns500_WhenExceptionIsThrown()
         var fileName = "mockfile.png";
 
         _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user1");
-        _mockService.Setup(s => s.GetWebpageAsync("123", "user1")).ReturnsAsync(new Webpage { DesignFileId = "file123" });
+        _mockService.Setup(s => s.GetWebpageAsync("60f7d2a2c2a62b3b6c8e4f12", "user1")).ReturnsAsync(new Webpage { DesignFileId = "file123" });
         _mockService.Setup(s => s.DownloadFileAsync("file123")).ReturnsAsync((testStream, fileName));
 
-        var result = await _controller.DownloadDesignFile("123", "test@example.com");
+        var result = await _controller.DownloadDesignFile("60f7d2a2c2a62b3b6c8e4f12", "test@example.com");
 
         var fileResult = Assert.IsType<FileStreamResult>(result);
         Assert.Equal("mockfile.png", fileResult.FileDownloadName);
@@ -604,9 +776,9 @@ public async Task Login_Returns500_WhenExceptionIsThrown()
     [Fact]
     public async Task DownloadSpecifications_Returns_BadRequest_If_Email_Is_Null()
     {
-        var result = await _controller.DownloadSpecifications("id", null);
+        var result = await _controller.DownloadSpecifications("60f7d2a2c2a62b3b6c8e4f12", null);
         var badRequest = Assert.IsType<BadRequestObjectResult>(result);
-        Assert.Equal("Email cannot be null", badRequest.Value);
+        Assert.Equal("Invalid email", badRequest.Value);
     }
 
     [Fact]
@@ -614,7 +786,7 @@ public async Task Login_Returns500_WhenExceptionIsThrown()
     {
         _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync((string)null);
 
-        var result = await _controller.DownloadSpecifications("id", "test@example.com");
+        var result = await _controller.DownloadSpecifications("60f7d2a2c2a62b3b6c8e4f12", "test@example.com");
         var unauthorized = Assert.IsType<UnauthorizedObjectResult>(result);
         Assert.Equal("Please Sign up", unauthorized.Value);
     }
@@ -626,16 +798,16 @@ public async Task Login_Returns500_WhenExceptionIsThrown()
 
         var result = await _controller.DownloadSpecifications(null, "test@example.com");
         var badRequest = Assert.IsType<BadRequestObjectResult>(result);
-        Assert.Equal("WebpageId cannot be null", badRequest.Value);
+        Assert.Equal("Invalid ID", badRequest.Value);
     }
 
     [Fact]
     public async Task DownloadSpecifications_Returns_NotFound_If_Webpage_Not_Found()
     {
         _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user");
-        _mockService.Setup(s => s.GetWebpageAsync("id", "user")).ReturnsAsync((Webpage)null);
+        _mockService.Setup(s => s.GetWebpageAsync("60f7d2a2c2a62b3b6c8e4f12", "user")).ReturnsAsync((Webpage)null);
 
-        var result = await _controller.DownloadSpecifications("id", "test@example.com");
+        var result = await _controller.DownloadSpecifications("60f7d2a2c2a62b3b6c8e4f12", "test@example.com");
         var notFound = Assert.IsType<NotFoundObjectResult>(result);
         Assert.Equal("Webpage not found", notFound.Value);
     }
@@ -644,9 +816,9 @@ public async Task Login_Returns500_WhenExceptionIsThrown()
     public async Task DownloadSpecifications_Returns_NotFound_If_SpecificationFileId_Is_Null()
     {
         _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user");
-        _mockService.Setup(s => s.GetWebpageAsync("id", "user")).ReturnsAsync(new Webpage { SpecificationFileId = null });
+        _mockService.Setup(s => s.GetWebpageAsync("60f7d2a2c2a62b3b6c8e4f12", "user")).ReturnsAsync(new Webpage { SpecificationFileId = null });
 
-        var result = await _controller.DownloadSpecifications("id", "test@example.com");
+        var result = await _controller.DownloadSpecifications("60f7d2a2c2a62b3b6c8e4f12", "test@example.com");
         var notFound = Assert.IsType<NotFoundObjectResult>(result);
         Assert.Equal("Specification File was not uploaded.", notFound.Value);
     }
@@ -655,10 +827,10 @@ public async Task Login_Returns500_WhenExceptionIsThrown()
     public async Task DownloadSpecifications_Returns_500_If_Stream_Is_Null()
     {
         _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user");
-        _mockService.Setup(s => s.GetWebpageAsync("id", "user")).ReturnsAsync(new Webpage { SpecificationFileId = "fid" });
+        _mockService.Setup(s => s.GetWebpageAsync("60f7d2a2c2a62b3b6c8e4f12", "user")).ReturnsAsync(new Webpage { SpecificationFileId = "fid" });
         _mockService.Setup(s => s.DownloadFileAsync("fid")).ReturnsAsync((null as Stream, null));
 
-        var result = await _controller.DownloadSpecifications("id", "test@example.com");
+        var result = await _controller.DownloadSpecifications("60f7d2a2c2a62b3b6c8e4f12", "test@example.com");
         var obj = Assert.IsType<ObjectResult>(result);
         Assert.Equal(500, obj.StatusCode);
         Assert.Contains("Something went wrong", obj.Value.ToString());
@@ -676,10 +848,10 @@ public async Task Login_Returns500_WhenExceptionIsThrown()
         var stream = new MemoryStream(Encoding.UTF8.GetBytes(content));
 
         _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user");
-        _mockService.Setup(s => s.GetWebpageAsync("id", "user")).ReturnsAsync(new Webpage { SpecificationFileId = "fid" });
+        _mockService.Setup(s => s.GetWebpageAsync("60f7d2a2c2a62b3b6c8e4f12", "user")).ReturnsAsync(new Webpage { SpecificationFileId = "fid" });
         _mockService.Setup(s => s.DownloadFileAsync("fid")).ReturnsAsync((stream, "file.txt"));
 
-        var result = await _controller.DownloadSpecifications("id", "test@example.com");
+        var result = await _controller.DownloadSpecifications("60f7d2a2c2a62b3b6c8e4f12", "test@example.com");
         var ok = Assert.IsType<OkObjectResult>(result);
 
         string json = JsonConvert.SerializeObject(ok.Value);
@@ -697,14 +869,14 @@ public async Task Login_Returns500_WhenExceptionIsThrown()
         var stream = new MemoryStream(pdfBytes);
 
         _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user1");
-        _mockService.Setup(s => s.GetWebpageAsync("id", "user1")).ReturnsAsync(new Webpage
+        _mockService.Setup(s => s.GetWebpageAsync("60f7d2a2c2a62b3b6c8e4f12", "user1")).ReturnsAsync(new Webpage
         {
             SpecificationFileId = "spec123"
         });
         _mockService.Setup(s => s.DownloadFileAsync("spec123")).ReturnsAsync((stream, "mock.pdf"));
 
         // Act
-        var result = await _controller.DownloadSpecifications("id", "test@example.com");
+        var result = await _controller.DownloadSpecifications("60f7d2a2c2a62b3b6c8e4f12", "test@example.com");
 
         // Assert
         var ok = Assert.IsType<OkObjectResult>(result);

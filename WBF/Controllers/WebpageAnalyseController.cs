@@ -24,26 +24,25 @@ public class WebpageAnalyseController : ControllerBase
         _webpageAnalyseService = webpageAnalyseService;
         _httpClientFactory = httpClientFactory;
         _PageSpeedAPI_API_KEY = pageSpeedAPIConfig.Value.API_KEY;
-        // _logger.LogInformation(_pythonServer.BaseAddress);
     }
 
-    // [HttpGet("test")]
-    // public async Task<string> Home()
-    // {
-    //     var pythonServer = _pythonServerFactory.CreateClient("PythonServer");
-    //     string x = "fefe";
-    //     _logger.LogInformation(pythonServer.BaseAddress?.ToString());
-    //     return x;
-    // }
-    // private async Task<bool> ValidateEmail(string email)
-    // {
-    //     return await _webpageAnalyseService.GetUserByEmailAsync(email)!=null;
-    // }
+    /// <summary>
+    /// Logs in a user by validating their email address.
+    /// </summary>
+    /// <param name="email">The user's email address.</param>
+    /// <returns>
+    /// 200 OK if the user exists, with the email in the response body.<br/>
+    /// 400 BadRequest if the email is invalid.<br/>
+    /// 401 Unauthorized if the user does not exist.<br/>
+    /// 500 InternalServerError if an unexpected error occurs.
+    /// </returns>
     [HttpPost("login")]
     public async Task<IActionResult> Login(string email)
     {
         try
         {
+            if (string.IsNullOrWhiteSpace(email)) return BadRequest("Email cannot be Null");
+            if (email.Length > 100) return BadRequest("Email is too long");
             if (!new EmailAddressAttribute().IsValid(email))
                 return BadRequest("Invalid email");
 
@@ -55,15 +54,27 @@ public class WebpageAnalyseController : ControllerBase
         }
         catch (Exception e)
         {
-            return StatusCode(500, $"Something went wrong: {e.Message}");
+            _logger.LogError($"Error in Login: {e.Message}");
+            return StatusCode(500, $"Something went wrong.");
         }
     }
 
+    /// <summary>
+    /// Registers a new user with the given email address.
+    /// </summary>
+    /// <param name="email">The user's email address to register.</param>
+    /// <returns>
+    /// 200 OK with the user ID and email if registration is successful.<br/>
+    /// 400 BadRequest if the email is invalid or already exists.<br/>
+    /// 500 InternalServerError if an unexpected error occurs.
+    /// </returns>
     [HttpPost("signup")]
     public async Task<IActionResult> Signup(string email)
     {
         try
         {
+            if (string.IsNullOrWhiteSpace(email)) return BadRequest("Email cannot be Null");
+            if (email.Length > 100) return BadRequest("Email is too long");
             if (!new EmailAddressAttribute().IsValid(email))
                 return BadRequest("Invalid email");
 
@@ -76,7 +87,8 @@ public class WebpageAnalyseController : ControllerBase
         }
         catch (Exception e)
         {
-            return StatusCode(500, $"Something went wrong: {e.Message}");
+            _logger.LogError($"Error in Signup: {e.Message}");
+            return StatusCode(500, $"Something went wrong.");
         }
     }
 
@@ -219,28 +231,53 @@ public class WebpageAnalyseController : ControllerBase
         }
     }
 
-
+    /// <summary>
+    /// Uploads an HTML file or URL along with optional design and specification files for analysis.
+    /// </summary>
+    /// <param name="name">Optional custom name for the webpage.</param>
+    /// <param name="email">User's email address.</param>
+    /// <param name="htmlFile">The HTML file to upload (optional).</param>
+    /// <param name="url">The URL to fetch HTML content from (optional).</param>
+    /// <param name="designFile">Optional design image file.</param>
+    /// <param name="specificationFile">Optional specification file in .txt or .pdf format.</param>
+    /// <returns>
+    /// 200 OK with webpage ID if the upload and analysis succeed.<br/>
+    /// 400 BadRequest for invalid input (e.g., missing HTML or URL, unsupported file types).<br/>
+    /// 401 Unauthorized if the user is not found.<br/>
+    /// 500 InternalServerError if an unexpected error occurs.
+    /// </returns>
     [HttpPost("upload")]
     public async Task<IActionResult> Upload([FromForm] string? name, [FromQuery] string email, IFormFile? htmlFile = null, [FromForm] string? url = null, IFormFile? designFile = null, IFormFile? specificationFile = null)
     {
-        // _logger.LogInformation(url);
-        if (!new EmailAddressAttribute().IsValid(email))
-            return BadRequest("Invalid email");
 
+        if (string.IsNullOrWhiteSpace(email) || email.Length > 100 || !new EmailAddressAttribute().IsValid(email))
+            return BadRequest("Invalid email");
+        if (string.IsNullOrWhiteSpace(name) || name.Length > 100)
+            return BadRequest("Name cannot be null nor longer than 100 characters");
+        if (!string.IsNullOrWhiteSpace(url) && url.Length > 2000)
+            return BadRequest("URL is too long");
         if (htmlFile == null && string.IsNullOrWhiteSpace(url))
             return BadRequest("Either HTML file or URL is required");
 
         if (htmlFile != null && !string.IsNullOrWhiteSpace(url))
             return BadRequest("Provide either HTML file or URL, not both");
 
-        if (htmlFile != null && Path.GetExtension(htmlFile.FileName).ToLower() != ".html")
-            return BadRequest("HTML file must have .html extension");
+        if (htmlFile != null)
+        {
+            if (Path.GetExtension(htmlFile.FileName).ToLower() != ".html")
+                return BadRequest("HTML file must have .html extension");
 
+            if (htmlFile.Length > 2 * 1024 * 1024)
+                return BadRequest("HTML file size cannot exceed 5MB");
+        }
         if (specificationFile != null)
         {
             var ext = Path.GetExtension(specificationFile.FileName).ToLower();
             if (ext != ".txt" && ext != ".pdf")
                 return BadRequest("Specification file must be .txt or .pdf");
+
+            if (specificationFile.Length > 2 * 1024 * 1024)
+                return BadRequest("Specification file size cannot exceed 2MB");
         }
 
         if (designFile != null)
@@ -249,6 +286,9 @@ public class WebpageAnalyseController : ControllerBase
             var validImageExts = new[] { ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg" };
             if (!validImageExts.Contains(ext))
                 return BadRequest("Design file must be an image");
+
+            if (designFile.Length > 5 * 1024 * 1024)
+                return BadRequest("Design file size cannot exceed 5MB");
         }
 
         var userId = await _webpageAnalyseService.GetUserByEmailAsync(email);
@@ -389,8 +429,8 @@ public class WebpageAnalyseController : ControllerBase
         }
         catch (Exception error)
         {
-            _logger.LogError(error, "Error during upload.");
-            return StatusCode(500, $"Something went wrong: {error.Message}");
+            _logger.LogError($"Error in Upload: {error.Message}");
+            return StatusCode(500, $"Something went wrong.");
         }
     }
     private async Task<string> ExtractTextFromPdfAsync(IFormFile pdfFile)
@@ -410,12 +450,22 @@ public class WebpageAnalyseController : ControllerBase
         return text.ToString();
     }
 
+    /// <summary>
+    /// Retrieves a list of webpages uploaded by the user associated with the given email.
+    /// </summary>
+    /// <param name="email">The email address of the user.</param>
+    /// <returns>
+    /// 200 OK with a list of webpage summaries.<br/>
+    /// 400 BadRequest if the email is invalid.<br/>
+    /// 401 Unauthorized if the user is not registered.<br/>
+    /// 500 InternalServerError if an unexpected error occurs.
+    /// </returns>
     [HttpGet("list-webpages")]
     public async Task<IActionResult> ListWebpages([FromQuery] string email)
     {
         try
         {
-            if (!new EmailAddressAttribute().IsValid(email))
+            if (string.IsNullOrWhiteSpace(email) || email.Length > 100 || !new EmailAddressAttribute().IsValid(email))
                 return BadRequest("Invalid email");
 
             var userId = await _webpageAnalyseService.GetUserByEmailAsync(email);
@@ -425,16 +475,34 @@ public class WebpageAnalyseController : ControllerBase
             var list = await _webpageAnalyseService.ListWebpagesAsync(userId);
             return Ok(list);
         }
-        catch (Exception e)
+        catch (Exception error)
         {
-            return StatusCode(500, $"Something went wrong: {e.Message}");
+            _logger.LogError($"Error in ListWebpages: {error.Message}");
+            return StatusCode(500, $"Something went wrong.");
         }
     }
+
+    /// <summary>
+    /// Retrieves the HTML content and analysis result of a specific webpage uploaded by the user.
+    /// </summary>
+    /// <param name="id">The ID of the webpage to retrieve.</param>
+    /// <param name="email">The email address of the user.</param>
+    /// <returns>
+    /// 200 OK with the HTML content and analysis result.<br/>
+    /// 401 Unauthorized if the user is not registered.<br/>
+    /// 404 NotFound if the webpage or its content is not found.<br/>
+    /// 500 InternalServerError if an unexpected error occurs.
+    /// </returns>
+
     [HttpGet("view-webpage/{id}")]
     public async Task<IActionResult> ViewWebpage(string id, [FromQuery] string email)
     {
         try
         {
+            if (string.IsNullOrWhiteSpace(email) || email.Length > 100 || !new EmailAddressAttribute().IsValid(email))
+                return BadRequest("Invalid email");
+            if (string.IsNullOrWhiteSpace(id) || !MongoDB.Bson.ObjectId.TryParse(id, out _))
+                return BadRequest("Invalid ID");
             var userId = await _webpageAnalyseService.GetUserByEmailAsync(email);
             if (userId == null)
                 return Unauthorized("Please Sign up");
@@ -446,22 +514,37 @@ public class WebpageAnalyseController : ControllerBase
 
             return Ok(new { htmlContent, webpageAnalysisResult });
         }
-        catch (Exception e)
+        catch (Exception error)
         {
-            return StatusCode(500, $"Something went wrong: {e.Message}");
+            _logger.LogError($"Error in ViewWebpage: {error.Message}");
+            return StatusCode(500, $"Something went wrong.");
         }
     }
+    /// <summary>
+    /// Downloads the design file associated with a specific webpage for a registered user.
+    /// </summary>
+    /// <param name="webpageId">The ID of the webpage whose design file is to be downloaded.</param>
+    /// <param name="email">The email address of the user.</param>
+    /// <returns>
+    /// 200 OK with the design file as a stream.<br/>
+    /// 400 BadRequest if email or webpageId is null.<br/>
+    /// 401 Unauthorized if the user is not registered.<br/>
+    /// 404 NotFound if the webpage or design file is not found.<br/>
+    /// 500 InternalServerError if an unexpected error occurs.
+    /// </returns>
 
     [HttpGet("download-designfile/{webpageId}")]
     public async Task<IActionResult> DownloadDesignFile(string webpageId, [FromQuery] string email)
     {
         try
         {
-            if (email == null) return BadRequest("Email cannot be null");
+            if (string.IsNullOrWhiteSpace(email) || email.Length > 100 || !new EmailAddressAttribute().IsValid(email))
+                return BadRequest("Invalid email");
+            if (string.IsNullOrWhiteSpace(webpageId) || !MongoDB.Bson.ObjectId.TryParse(webpageId, out _))
+                return BadRequest("Invalid ID");
             string userId = await _webpageAnalyseService.GetUserByEmailAsync(email);
             if (userId == null)
                 return Unauthorized("Please Sign up");
-            if (webpageId == null) return BadRequest("WebpageId cannot be null");
 
             Webpage webpage = await _webpageAnalyseService.GetWebpageAsync(webpageId, userId);
             if (webpage == null) return NotFound("Webpage not found");
@@ -480,18 +563,36 @@ public class WebpageAnalyseController : ControllerBase
             // var fileBytes = System.IO.File.ReadAllBytes(filePath);
             return File(stream, contentType, fileName);
         }
-        catch (Exception e)
+        catch (Exception error)
         {
-            return StatusCode(500, $"Something went wrong: {e.Message}");
+            _logger.LogError($"Error in DownloadDesignFile: {error.Message}");
+            return StatusCode(500, $"Something went wrong.");
         }
     }
+
+    /// <summary>
+    /// Downloads and returns the specifications file (PDF or text) content associated with a specific webpage for a registered user.
+    /// </summary>
+    /// <param name="webpageId">The ID of the webpage whose specifications file is to be downloaded.</param>
+    /// <param name="email">The email address of the user.</param>
+    /// <returns>
+    /// 200 OK with the file content as plain text.<br/>
+    /// 400 BadRequest if email or webpageId is null.<br/>
+    /// 401 Unauthorized if the user is not registered.<br/>
+    /// 404 NotFound if the webpage or specification file is not found.<br/>
+    /// 500 InternalServerError if an unexpected error occurs.
+    /// </returns>
+
 
     [HttpGet("download-specifications/{webpageId}")]
     public async Task<IActionResult> DownloadSpecifications(string webpageId, [FromQuery] string email)
     {
         try
         {
-            if (email == null) return BadRequest("Email cannot be null");
+            if (string.IsNullOrWhiteSpace(email) || email.Length > 100 || !new EmailAddressAttribute().IsValid(email))
+                return BadRequest("Invalid email");
+            if (string.IsNullOrWhiteSpace(webpageId) || !MongoDB.Bson.ObjectId.TryParse(webpageId, out _))
+                return BadRequest("Invalid ID");
             string userId = await _webpageAnalyseService.GetUserByEmailAsync(email);
             if (userId == null)
                 return Unauthorized("Please Sign up");
@@ -528,11 +629,12 @@ public class WebpageAnalyseController : ControllerBase
             }
             return Ok(new { content });
         }
-        catch (Exception e)
+        catch (Exception error)
         {
-            return StatusCode(500, $"Something went wrong: {e.Message}");
+            _logger.LogError($"Error in DownloadSpecifications: {error.Message}");
+            return StatusCode(500, $"Something went wrong.");
         }
     }
 
-    
+
 }
