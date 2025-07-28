@@ -39,8 +39,10 @@ public class WebpageAnalyseService : IWebpageAnalyseService
     private readonly IMongoCollection<WebpageAnalysisResult> _webpageAnalysisResultCollection;
     private readonly IGridFSBucket _bucket;
     private readonly IMongoDatabase _mongoDatabase;
-    public WebpageAnalyseService(IMongoDatabase mongoDatabase, IOptions<WebpageAnalyseDatabaseSettings> webpageAnalyseDatabaseSettings, IGridFSBucket? bucket = null)
+    private readonly ILogger<WebpageAnalyseService> _logger;
+    public WebpageAnalyseService(IMongoDatabase mongoDatabase, IOptions<WebpageAnalyseDatabaseSettings> webpageAnalyseDatabaseSettings, ILogger<WebpageAnalyseService> logger, IGridFSBucket? bucket = null)
     {
+        _logger = logger;
         _mongoDatabase = mongoDatabase;
         _webpagesCollection = mongoDatabase.GetCollection<Webpage>(webpageAnalyseDatabaseSettings.Value.WebpagesCollectionName);
         _userCollection = mongoDatabase.GetCollection<User>(webpageAnalyseDatabaseSettings.Value.UsersCollectionName);
@@ -110,8 +112,9 @@ public class WebpageAnalyseService : IWebpageAnalyseService
             string? fileName = fileInfo.Filename;
             return (stream, fileName);
         }
-        catch
+        catch(Exception error)
         {
+            _logger.LogError($"Error in Services.DownloadFileAsync: {error.Message}");
             return (null, null);
         }
 

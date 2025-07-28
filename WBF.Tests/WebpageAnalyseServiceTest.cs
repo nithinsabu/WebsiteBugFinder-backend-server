@@ -12,6 +12,7 @@ using MongoDB.Bson;
 using Microsoft.Extensions.Options;
 using WBF.Services;
 using WBF.Models;
+using Microsoft.Extensions.Logging;
 
 public class WebpageAnalyseServiceTests
 {
@@ -60,8 +61,8 @@ public class WebpageAnalyseServiceTests
                 It.IsAny<GridFSFindOptions>(), default))
             .Returns(mockCursor.Object);
 
-
-        _service = new WebpageAnalyseService(_mockDb.Object, settings, _mockBucket.Object);
+        var mockLogger = new Mock<ILogger<WebpageAnalyseService>>();
+        _service = new WebpageAnalyseService(_mockDb.Object, settings, mockLogger.Object, _mockBucket.Object);
     }
 
     private static IAsyncCursor<T> MockEmptyCursor<T>()
