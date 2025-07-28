@@ -105,6 +105,7 @@ public class WebpageAnalyseControllerTests : IDisposable
         _mockService.Reset();
     }
 
+    //Login
     [Fact]
     public async Task Login_WithInvalidEmail_ReturnsBadRequest()
     {
@@ -160,6 +161,7 @@ public async Task Login_Returns500_WhenExceptionIsThrown()
     Assert.Contains("Something went wrong: Simulated failure", status.Value.ToString());
 }
 
+    //Signup
     [Fact]
     public async Task Signup_WithInvalidEmail_ReturnsBadRequest()
     {
@@ -222,7 +224,7 @@ public async Task Login_Returns500_WhenExceptionIsThrown()
         Assert.Contains("Something went wrong: Simulated failure", statusResult.Value?.ToString());
     }
 
-    //Upload Validation tests
+    //Upload
     [Fact]
     public async Task Upload_MissingEmail_ReturnsBadRequest()
     {
@@ -300,7 +302,7 @@ public async Task Login_Returns500_WhenExceptionIsThrown()
         Assert.IsType<BadRequestObjectResult>(result);
     }
 
-    //Business logic tests
+    //Upload: Business logic tests
     [Fact]
     public async Task Upload_UserNotFound_ReturnsUnauthorized()
     {
@@ -391,7 +393,7 @@ public async Task Login_Returns500_WhenExceptionIsThrown()
         Assert.Equal("webpage123", ok.Value);
     }
 
-
+    //ListWebpages
     [Fact]
     public async Task ListWebpages_InvalidEmail_ReturnsBadRequest()
     {
@@ -461,6 +463,7 @@ public async Task Login_Returns500_WhenExceptionIsThrown()
     }
 
 
+    //ViewWebpage
     public class ViewWebpageResponse
     {
         public string HtmlContent { get; set; } = default!;
@@ -517,6 +520,7 @@ public async Task Login_Returns500_WhenExceptionIsThrown()
         Assert.Equal("Webpage or HTML content not found", notFound.Value);
     }
 
+    //DownloadDesignFile
     [Fact]
     public async Task DownloadDesignFile_ReturnsBadRequest_IfEmailIsNull()
     {
@@ -596,8 +600,9 @@ public async Task Login_Returns500_WhenExceptionIsThrown()
         Assert.Same(testStream, fileResult.FileStream);
     }
 
+    //DownloadSpecifications
     [Fact]
-    public async Task Returns_BadRequest_If_Email_Is_Null()
+    public async Task DownloadSpecifications_Returns_BadRequest_If_Email_Is_Null()
     {
         var result = await _controller.DownloadSpecifications("id", null);
         var badRequest = Assert.IsType<BadRequestObjectResult>(result);
@@ -605,7 +610,7 @@ public async Task Login_Returns500_WhenExceptionIsThrown()
     }
 
     [Fact]
-    public async Task Returns_Unauthorized_If_User_Not_Found()
+    public async Task DownloadSpecifications_Returns_Unauthorized_If_User_Not_Found()
     {
         _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync((string)null);
 
@@ -615,7 +620,7 @@ public async Task Login_Returns500_WhenExceptionIsThrown()
     }
 
     [Fact]
-    public async Task Returns_BadRequest_If_WebpageId_Is_Null()
+    public async Task DownloadSpecifications_Returns_BadRequest_If_WebpageId_Is_Null()
     {
         _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user");
 
@@ -625,7 +630,7 @@ public async Task Login_Returns500_WhenExceptionIsThrown()
     }
 
     [Fact]
-    public async Task Returns_NotFound_If_Webpage_Not_Found()
+    public async Task DownloadSpecifications_Returns_NotFound_If_Webpage_Not_Found()
     {
         _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user");
         _mockService.Setup(s => s.GetWebpageAsync("id", "user")).ReturnsAsync((Webpage)null);
@@ -636,7 +641,7 @@ public async Task Login_Returns500_WhenExceptionIsThrown()
     }
 
     [Fact]
-    public async Task Returns_NotFound_If_SpecificationFileId_Is_Null()
+    public async Task DownloadSpecifications_Returns_NotFound_If_SpecificationFileId_Is_Null()
     {
         _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user");
         _mockService.Setup(s => s.GetWebpageAsync("id", "user")).ReturnsAsync(new Webpage { SpecificationFileId = null });
@@ -647,7 +652,7 @@ public async Task Login_Returns500_WhenExceptionIsThrown()
     }
 
     [Fact]
-    public async Task Returns_500_If_Stream_Is_Null()
+    public async Task DownloadSpecifications_Returns_500_If_Stream_Is_Null()
     {
         _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user");
         _mockService.Setup(s => s.GetWebpageAsync("id", "user")).ReturnsAsync(new Webpage { SpecificationFileId = "fid" });
@@ -665,7 +670,7 @@ public async Task Login_Returns500_WhenExceptionIsThrown()
     }
 
     [Fact]
-    public async Task Returns_Content_For_Text_File()
+    public async Task DownloadSpecifications_Returns_Content_For_Text_File()
     {
         var content = "This is text content.";
         var stream = new MemoryStream(Encoding.UTF8.GetBytes(content));
