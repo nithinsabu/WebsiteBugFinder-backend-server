@@ -24,7 +24,7 @@ public interface IWebpageAnalyseService
     Task<List<WebpageSummary>> ListWebpagesAsync(string userId);
     Task<(string? HtmlContent, WebpageAnalysisResult? webpageAnalysisResult)> GetWebpageContentAndAnalysisAsync(string webpageId);
     Task<Webpage?> GetWebpageAsync(string webpageId, string userId);
-    }
+}
 
 public class WebpageAnalyseService : IWebpageAnalyseService
 {
@@ -37,9 +37,11 @@ public class WebpageAnalyseService : IWebpageAnalyseService
     private readonly IMongoCollection<Webpage> _webpagesCollection;
     private readonly IMongoCollection<User> _userCollection;
     private readonly IMongoCollection<WebpageAnalysisResult> _webpageAnalysisResultCollection;
-    private readonly GridFSBucket _bucket;
-    public WebpageAnalyseService(IMongoDatabase mongoDatabase, IOptions<WebpageAnalyseDatabaseSettings> webpageAnalyseDatabaseSettings, GridFSBucket? bucket = null)
+    private readonly IGridFSBucket _bucket;
+    private readonly IMongoDatabase _mongoDatabase;
+    public WebpageAnalyseService(IMongoDatabase mongoDatabase, IOptions<WebpageAnalyseDatabaseSettings> webpageAnalyseDatabaseSettings, IGridFSBucket? bucket = null)
     {
+        _mongoDatabase = mongoDatabase;
         _webpagesCollection = mongoDatabase.GetCollection<Webpage>(webpageAnalyseDatabaseSettings.Value.WebpagesCollectionName);
         _userCollection = mongoDatabase.GetCollection<User>(webpageAnalyseDatabaseSettings.Value.UsersCollectionName);
         _webpageAnalysisResultCollection = mongoDatabase.GetCollection<WebpageAnalysisResult>(webpageAnalyseDatabaseSettings.Value.WebpageAnalysisResultsCollectionName);
@@ -49,7 +51,7 @@ public class WebpageAnalyseService : IWebpageAnalyseService
         }
         else
         {
-        _bucket = new GridFSBucket(mongoDatabase);
+            _bucket = new GridFSBucket(mongoDatabase);
         }
     }
 
@@ -72,10 +74,23 @@ public class WebpageAnalyseService : IWebpageAnalyseService
 
     public async Task<string> CreateWebpageAndAnalysisResultAsync(Webpage webpage, WebpageAnalysisResult webpageAnalysisResult)
     {
-        await _webpagesCollection.InsertOneAsync(webpage);
-        webpageAnalysisResult.WebpageId = webpage.Id;
-        await _webpageAnalysisResultCollection.InsertOneAsync(webpageAnalysisResult);
-        return webpage.Id;
+        using var session = await _mongoDatabase.Client.StartSessionAsync();
+        session.StartTransaction();
+
+        try
+        {
+            await _webpagesCollection.InsertOneAsync(session, webpage);
+            webpageAnalysisResult.WebpageId = webpage.Id;
+            await _webpageAnalysisResultCollection.InsertOneAsync(session, webpageAnalysisResult);
+
+            await session.CommitTransactionAsync();
+            return webpage.Id;
+        }
+        catch(Exception e)
+        {
+            await session.AbortTransactionAsync();
+            throw e;
+        }
     }
 
     public async Task<string> UploadFileAsync(Stream stream, string filename)
