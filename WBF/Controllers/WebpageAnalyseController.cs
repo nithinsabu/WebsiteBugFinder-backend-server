@@ -26,16 +26,31 @@ public class WebpageAnalyseController : ControllerBase
         _PageSpeedAPI_API_KEY = pageSpeedAPIConfig.Value.API_KEY;
     }
 
+    public class LoginResponse
+    {
+        public string Email { get; set; }
+    }
     /// <summary>
     /// Logs in a user by validating their email address.
     /// </summary>
-    /// <param name="email">The user's email address.</param>
+    /// <param name="email">The email address of the user attempting to log in.</param>
     /// <returns>
-    /// 200 OK if the user exists, with the email in the response body.<br/>
-    /// 400 BadRequest if the email is invalid.<br/>
-    /// 401 Unauthorized if the user does not exist.<br/>
-    /// 500 InternalServerError if an unexpected error occurs.
+    /// A <see cref="LoginResponse"/> containing the user's email if login is successful.
     /// </returns>
+    /// <response code="200">The user exists and login is successful.</response>
+    /// <response code="400">The email is null, empty, too long, or in an invalid format.</response>
+    /// <response code="401">The email is valid but no matching user exists.</response>
+    /// <response code="503">A server or database error occurred while processing the request.</response>
+    /// <exception cref="ValidationException">
+    /// Thrown when the email is null, empty, too long, or invalid.
+    /// </exception>
+    /// <remarks>
+    /// This endpoint validates the provided email against existing user records.
+    /// </remarks>
+    [ProducesResponseType(typeof(LoginResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     [HttpPost("login")]
     public async Task<IActionResult> Login(string email)
     {
@@ -48,26 +63,42 @@ public class WebpageAnalyseController : ControllerBase
 
             var userEmail = await _webpageAnalyseService.GetUserByEmailAsync(email);
             if (userEmail != null)
-                return Ok(new { email });
+                return Ok(new LoginResponse { Email = email });
 
             return Unauthorized();
         }
         catch (Exception e)
         {
             _logger.LogError($"Error in Login: {e.Message}");
-            return StatusCode(500, $"Something went wrong.");
+            return StatusCode(503, $"Something went wrong.");
         }
+    }
+
+    public class SignupResponse
+    {
+        public string UserId { get; set; }
+        public string Email { get; set; }
     }
 
     /// <summary>
     /// Registers a new user with the given email address.
     /// </summary>
-    /// <param name="email">The user's email address to register.</param>
+    /// <param name="email">The email address to register for the new user.</param>
     /// <returns>
-    /// 200 OK with the user ID and email if registration is successful.<br/>
-    /// 400 BadRequest if the email is invalid or already exists.<br/>
-    /// 500 InternalServerError if an unexpected error occurs.
+    /// A <see cref="SignupResponse"/> containing the user ID and email if registration is successful.
     /// </returns>
+    /// <response code="200">Registration succeeded; returns the new user's ID and email.</response>
+    /// <response code="400">The email is null, empty, too long, invalid, or already exists.</response>
+    /// <response code="503">A server or database error occurred while processing the registration.</response>
+    /// <exception cref="ValidationException">
+    /// Thrown when the email is null, empty, too long, or invalid.
+    /// </exception>
+    /// <remarks>
+    /// This endpoint validates the provided email and attempts to create a new user record.
+    /// </remarks>
+    [ProducesResponseType(typeof(SignupResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     [HttpPost("signup")]
     public async Task<IActionResult> Signup(string email)
     {
@@ -83,20 +114,22 @@ public class WebpageAnalyseController : ControllerBase
             {
                 return BadRequest("Email already exists");
             }
-            return Ok(new { userId = userId, email = email });
+            return Ok(new SignupResponse { UserId = userId, Email = email });
         }
         catch (Exception e)
         {
             _logger.LogError($"Error in Signup: {e.Message}");
-            return StatusCode(500, $"Something went wrong.");
+            return StatusCode(503, $"Something went wrong.");
         }
     }
 
     private async Task<LLMResponse?> ForwardToLLM(string htmlText, string? specification = null, Stream? designFile = null, string designFileName = "designFile.png", string? designFileType = "image/png", WebAuditResults? webAuditResults = null)
     //throws error if failed. Should be handled by the function that is calling this. it is understood that the input format is what is required.
     {
-        using (var content = new MultipartFormDataContent())
+        try
         {
+            using var content = new MultipartFormDataContent();
+
             content.Add(new StringContent(htmlText), "htmlText");
             if (specification != null)
             {
@@ -124,6 +157,11 @@ public class WebpageAnalyseController : ControllerBase
             }
 
             return JsonSerializer.Deserialize<LLMResponse>(responseString) ?? null;
+        }
+        catch (Exception e)
+        {
+            _logger.LogError($"Gemini Server error: {e.Message}");
+            return null;
         }
     }
 
@@ -154,8 +192,9 @@ public class WebpageAnalyseController : ControllerBase
 
             return result ?? null;
         }
-        catch
+        catch (Exception e)
         {
+            _logger.LogError($"Axe Core Server Error: {e.Message}");
             return null;
         }
     }
@@ -183,8 +222,9 @@ public class WebpageAnalyseController : ControllerBase
 
             return result;
         }
-        catch
+        catch (Exception e)
         {
+            _logger.LogError($"PageSpeed Server Error: {e.Message}");
             return null;
         }
     }
@@ -225,31 +265,54 @@ public class WebpageAnalyseController : ControllerBase
 
             return result?.Messages?.Where(m => m.Type == "error").ToList() ?? null;
         }
-        catch
+        catch (Exception e)
         {
+            _logger.LogError($"Nu Validator Server Error: {e.Message}");
             return null;
         }
     }
 
     /// <summary>
-    /// Uploads an HTML file or URL along with optional design and specification files for analysis.
+    /// Uploads an HTML file or URL for accessibility and performance analysis,
+    /// with optional design and specification files.
     /// </summary>
-    /// <param name="name">Optional custom name for the webpage.</param>
-    /// <param name="email">User's email address.</param>
-    /// <param name="htmlFile">The HTML file to upload (optional).</param>
-    /// <param name="url">The URL to fetch HTML content from (optional).</param>
-    /// <param name="designFile">Optional design image file.</param>
-    /// <param name="specificationFile">Optional specification file in .txt or .pdf format.</param>
+    /// <param name="name">Optional custom name for the webpage. Must not exceed 100 characters.</param>
+    /// <param name="email">The email address of the user uploading the webpage.</param>
+    /// <param name="htmlFile">Optional HTML file to upload. Must be a .html file up to 5MB.</param>
+    /// <param name="url">Optional URL to fetch HTML content from. Must not exceed 2000 characters.</param>
+    /// <param name="designFile">Optional design image file (.png, .jpg, .jpeg, .gif, .bmp, .svg) up to 5MB.</param>
+    /// <param name="specificationFile">Optional specification file in .txt or .pdf format, up to 2MB.</param>
     /// <returns>
-    /// 200 OK with webpage ID if the upload and analysis succeed.<br/>
-    /// 400 BadRequest for invalid input (e.g., missing HTML or URL, unsupported file types).<br/>
-    /// 401 Unauthorized if the user is not found.<br/>
-    /// 500 InternalServerError if an unexpected error occurs.
+    /// The unique identifier of the uploaded webpage.
     /// </returns>
+    /// <response code="200">
+    /// Upload and analysis succeeded; returns the unique ID of the uploaded webpage.
+    /// </response>
+    /// <response code="400">
+    /// Invalid input — for example:  
+    /// • Missing both HTML file and URL  
+    /// • Both HTML file and URL provided  
+    /// • Invalid or oversized file  
+    /// • Invalid or missing email  
+    /// </response>
+    /// <response code="401">
+    /// User not found — email is valid but no registered account exists.
+    /// </response>
+    /// <response code="503">
+    /// A server or analysis service error occurred while processing the upload.
+    /// </response>
+    /// <remarks>
+    /// The provided HTML file or URL will be analyzed using accessibility, performance,  
+    /// and HTML validation tools, and the results will be stored for later retrieval.
+    /// </remarks>
+    [ProducesResponseType(typeof(string), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     [HttpPost("upload")]
     public async Task<IActionResult> Upload([FromForm] string? name, [FromQuery] string email, IFormFile? htmlFile = null, [FromForm] string? url = null, IFormFile? designFile = null, IFormFile? specificationFile = null)
     {
-
+        //input validation
         if (string.IsNullOrWhiteSpace(email) || email.Length > 100 || !new EmailAddressAttribute().IsValid(email))
             return BadRequest("Invalid email");
         if (string.IsNullOrWhiteSpace(name) || name.Length > 100)
@@ -313,12 +376,9 @@ public class WebpageAnalyseController : ControllerBase
                 }
                 catch
                 {
-                    throw new Exception("Invalid or broken URL.");
+                    return BadRequest("Invalid or broken URL.");
                 }
             }
-
-
-
             //Upload Files
             string htmlFileId;
             string? designFileId = null;
@@ -327,7 +387,7 @@ public class WebpageAnalyseController : ControllerBase
             Task<string> taskdesignFileId = Task.FromResult<string>(default!);
             Task<string> taskspecFileId = Task.FromResult<string>(default!);
 
-            var htmlStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(htmlText));
+            using var htmlStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(htmlText));
             taskHtmlFileId = _webpageAnalyseService.UploadFileAsync(htmlStream, htmlFile?.FileName ?? "from-url.html");
 
             if (designFile != null)
@@ -335,8 +395,6 @@ public class WebpageAnalyseController : ControllerBase
 
             if (specificationFile != null)
                 taskspecFileId = _webpageAnalyseService.UploadFileAsync(specificationFile.OpenReadStream(), specificationFile.FileName);
-
-
 
             Task<AxeCoreResponse?> taskAxeCoreResult = ForwardToAxeCoreService(url == null ? htmlText : null, url);
             Task<PageSpeedResponse?> taskPageSpeedResult = Task.FromResult<PageSpeedResponse?>(null);
@@ -368,38 +426,14 @@ public class WebpageAnalyseController : ControllerBase
             bool pageSpeedError = pageSpeedResult == null;
             bool nuValidatorError = nuValidatorResult == null;
             bool responsivenessError = axeCoreResult == null;
-            htmlStream.Dispose();
 
             //LLM Query:
             WebAuditResults webAuditResults = new WebAuditResults { axeCoreResult = axeCoreResult?.violations, pageSpeedResult = pageSpeedResult, nuValidatorResult = nuValidatorResult, responsivenessResult = axeCoreResult?.responsivenessResults };
-
             LLMResponse? llmResult = null;
-            bool llmError = true;
-            try
-            {
-                string? specification = null;
-                if (specificationFile != null)
-                {
-                    var ext = Path.GetExtension(specificationFile.FileName).ToLower();
-                    if (ext == ".txt")
-                    {
-                        using var specReader = new StreamReader(specificationFile.OpenReadStream());
-                        specification = await specReader.ReadToEndAsync();
-                    }
-                    else if (ext == ".pdf")
-                    {
-                        specification = await ExtractTextFromPdfAsync(specificationFile);
-                    }
-                    _logger.LogInformation(specification);
-                }
-                llmResult = await ForwardToLLM(htmlText: htmlText, specification: specification, designFile: designFile?.OpenReadStream(), designFileName: designFile?.FileName ?? "designFile.png", designFileType: designFile?.ContentType, webAuditResults: webAuditResults);
-                llmError = false;
-            }
-            catch (Exception e)
-            {
-                llmResult = null;
-                _logger.LogInformation(e.Message);
-            }
+            string? specification = await GetSpecifications(specificationFile);
+            llmResult = await ForwardToLLM(htmlText: htmlText, specification: specification, designFile: designFile?.OpenReadStream(), designFileName: designFile?.FileName ?? "designFile.png", designFileType: designFile?.ContentType, webAuditResults: webAuditResults);
+            bool llmError = llmResult == null;
+
             // Create models
             var webpage = new Webpage
             {
@@ -424,14 +458,30 @@ public class WebpageAnalyseController : ControllerBase
             };
 
             var webpageId = await _webpageAnalyseService.CreateWebpageAndAnalysisResultAsync(webpage, webpageAnalysisResult);
-            _logger.LogInformation(webpageId);
             return Ok(webpageId);
         }
         catch (Exception error)
         {
             _logger.LogError($"Error in Upload: {error.Message}");
-            return StatusCode(500, $"Something went wrong.");
+            return StatusCode(503, $"Something went wrong.");
         }
+    }
+    private async Task<string?> GetSpecifications(IFormFile? specificationFile)
+    {
+        if (specificationFile != null)
+        {
+            var ext = Path.GetExtension(specificationFile.FileName).ToLower();
+            if (ext == ".txt")
+            {
+                using var specReader = new StreamReader(specificationFile.OpenReadStream());
+                return await specReader.ReadToEndAsync();
+            }
+            else if (ext == ".pdf")
+            {
+                return await ExtractTextFromPdfAsync(specificationFile);
+            }
+        }
+        return null;
     }
     private async Task<string> ExtractTextFromPdfAsync(IFormFile pdfFile)
     {
@@ -453,13 +503,30 @@ public class WebpageAnalyseController : ControllerBase
     /// <summary>
     /// Retrieves a list of webpages uploaded by the user associated with the given email.
     /// </summary>
-    /// <param name="email">The email address of the user.</param>
+    /// <param name="email">The email address of the user. Must be valid and not exceed 100 characters.</param>
     /// <returns>
-    /// 200 OK with a list of webpage summaries.<br/>
-    /// 400 BadRequest if the email is invalid.<br/>
-    /// 401 Unauthorized if the user is not registered.<br/>
-    /// 500 InternalServerError if an unexpected error occurs.
+    /// A collection of <see cref="WebpageSummary"/> objects representing the webpages uploaded by the user.
     /// </returns>
+    /// <response code="200">
+    /// Successfully retrieved the list of webpages for the user.
+    /// </response>
+    /// <response code="400">
+    /// Invalid email — null, empty, too long, or in an invalid format.
+    /// </response>
+    /// <response code="401">
+    /// The email is valid but no registered user exists for it.
+    /// </response>
+    /// <response code="503">
+    /// A server or database error occurred while retrieving the list.
+    /// </response>
+    /// <remarks>
+    /// The result includes only summary details of each webpage (e.g., ID, name, upload date, file name, and URL),
+    /// not the full webpage content.
+    /// </remarks>
+    [ProducesResponseType(typeof(List<WebpageSummary>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     [HttpGet("list-webpages")]
     public async Task<IActionResult> ListWebpages([FromQuery] string email)
     {
@@ -478,24 +545,45 @@ public class WebpageAnalyseController : ControllerBase
         catch (Exception error)
         {
             _logger.LogError($"Error in ListWebpages: {error.Message}");
-            return StatusCode(500, $"Something went wrong.");
+            return StatusCode(503, $"Something went wrong.");
         }
     }
 
     /// <summary>
     /// Retrieves the HTML content and analysis result of a specific webpage uploaded by the user.
     /// </summary>
-    /// <param name="id">The ID of the webpage to retrieve.</param>
-    /// <param name="email">The email address of the user.</param>
+    /// <param name="id">The unique ID of the webpage to retrieve. Must be a valid MongoDB ObjectId.</param>
+    /// <param name="email">The email address of the user requesting the webpage. Must be valid and not exceed 100 characters.</param>
     /// <returns>
-    /// 200 OK with the HTML content and analysis result.<br/>
-    /// 401 Unauthorized if the user is not registered.<br/>
-    /// 404 NotFound if the webpage or its content is not found.<br/>
-    /// 500 InternalServerError if an unexpected error occurs.
+    /// A <see cref="WebpageContentAndAnalysisResponse"/> containing the HTML content and associated analysis results.
     /// </returns>
+    /// <response code="200">
+    /// Successfully retrieved the webpage's HTML content and analysis result.
+    /// </response>
+    /// <response code="400">
+    /// Invalid input — the email or webpage ID is missing, incorrectly formatted, or exceeds length limits.
+    /// </response>
+    /// <response code="401">
+    /// The email is valid but no registered user exists for it.
+    /// </response>
+    /// <response code="404">
+    /// The specified webpage or its HTML content could not be found.
+    /// </response>
+    /// <response code="503">
+    /// A server or database error occurred while retrieving the content.
+    /// </response>
+    /// <remarks>
+    /// The response includes both the raw HTML content and any associated analysis results
+    /// such as accessibility, performance, and validation findings.
+    /// </remarks>
+    [ProducesResponseType(typeof(WebpageContentAndAnalysisResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
 
     [HttpGet("view-webpage/{id}")]
-    public async Task<IActionResult> ViewWebpage(string id, [FromQuery] string email)
+    public async Task<IActionResult> ViewWebpage(string id, string email)
     {
         try
         {
@@ -507,32 +595,56 @@ public class WebpageAnalyseController : ControllerBase
             if (userId == null)
                 return Unauthorized("Please Sign up");
 
-            var (htmlContent, webpageAnalysisResult) = await _webpageAnalyseService.GetWebpageContentAndAnalysisAsync(id);
+            var contentResult = await _webpageAnalyseService.GetWebpageContentAndAnalysisAsync(id);
+            var htmlContent = contentResult.HtmlContent;
+            var webpageAnalysisResult = contentResult.WebpageAnalysisResult;
             if (htmlContent == null)
                 return NotFound("Webpage or HTML content not found");
-            // _logger.LogInformation(JsonSerializer.Serialize(webpageAnalysisResult));
 
-            return Ok(new { htmlContent, webpageAnalysisResult });
+            return Ok(new WebpageContentAndAnalysisResult { HtmlContent = htmlContent, WebpageAnalysisResult = webpageAnalysisResult });
         }
         catch (Exception error)
         {
             _logger.LogError($"Error in ViewWebpage: {error.Message}");
-            return StatusCode(500, $"Something went wrong.");
+            return StatusCode(503, $"Something went wrong.");
         }
     }
     /// <summary>
     /// Downloads the design file associated with a specific webpage for a registered user.
     /// </summary>
-    /// <param name="webpageId">The ID of the webpage whose design file is to be downloaded.</param>
-    /// <param name="email">The email address of the user.</param>
+    /// <param name="webpageId">
+    /// The unique ID of the webpage whose design file is to be downloaded. Must be a valid MongoDB ObjectId.
+    /// </param>
+    /// <param name="email">
+    /// The email address of the user requesting the download. Must be valid and not exceed 100 characters.
+    /// </param>
     /// <returns>
-    /// 200 OK with the design file as a stream.<br/>
-    /// 400 BadRequest if email or webpageId is null.<br/>
-    /// 401 Unauthorized if the user is not registered.<br/>
-    /// 404 NotFound if the webpage or design file is not found.<br/>
-    /// 500 InternalServerError if an unexpected error occurs.
+    /// A <see cref="FileDownloadResponse"/> containing the design file stream, file name, and MIME type.
     /// </returns>
-
+    /// <response code="200">
+    /// The design file was found and returned as a downloadable stream.
+    /// </response>
+    /// <response code="400">
+    /// The email or webpage ID is invalid.
+    /// </response>
+    /// <response code="401">
+    /// The user is not registered.
+    /// </response>
+    /// <response code="404">
+    /// The webpage was not found or it does not have an associated design file.
+    /// </response>
+    /// <response code="503">
+    /// A server or file retrieval error occurred while processing the request.
+    /// </response>
+    /// <remarks>
+    /// This endpoint retrieves the design file uploaded for a webpage and returns it
+    /// as a downloadable file stream with the appropriate MIME type.
+    /// </remarks>
+    [ProducesResponseType(typeof(File), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     [HttpGet("download-designfile/{webpageId}")]
     public async Task<IActionResult> DownloadDesignFile(string webpageId, [FromQuery] string email)
     {
@@ -551,7 +663,9 @@ public class WebpageAnalyseController : ControllerBase
             string? designFileId = webpage.DesignFileId;
             if (designFileId == null) return NotFound("Design File was not uploaded.");
 
-            (Stream stream, string fileName) = await _webpageAnalyseService.DownloadFileAsync(designFileId);
+            var fileResult = await _webpageAnalyseService.DownloadFileAsync(designFileId);
+            var stream = fileResult.Stream;
+            var fileName = fileResult.FileName;
             if (stream == null || fileName == null) throw new Exception("Couldn't find the file even though the file was uploaded.");
             var provider = new FileExtensionContentTypeProvider();
             string contentType;
@@ -566,24 +680,51 @@ public class WebpageAnalyseController : ControllerBase
         catch (Exception error)
         {
             _logger.LogError($"Error in DownloadDesignFile: {error.Message}");
-            return StatusCode(500, $"Something went wrong.");
+            return StatusCode(503, $"Something went wrong.");
         }
     }
 
+    class DownloadSpecificationsResponse
+    {
+        public string Content;
+    }
     /// <summary>
-    /// Downloads and returns the specifications file (PDF or text) content associated with a specific webpage for a registered user.
+    /// Retrieves the text content from the specification file (PDF or text) associated with a specific webpage for a registered user.
     /// </summary>
-    /// <param name="webpageId">The ID of the webpage whose specifications file is to be downloaded.</param>
-    /// <param name="email">The email address of the user.</param>
+    /// <param name="webpageId">
+    /// The unique ID of the webpage whose specification file content is to be retrieved. Must be a valid MongoDB ObjectId.
+    /// </param>
+    /// <param name="email">
+    /// The email address of the user requesting the content. Must be valid and not exceed 100 characters.
+    /// </param>
     /// <returns>
-    /// 200 OK with the file content as plain text.<br/>
-    /// 400 BadRequest if email or webpageId is null.<br/>
-    /// 401 Unauthorized if the user is not registered.<br/>
-    /// 404 NotFound if the webpage or specification file is not found.<br/>
-    /// 500 InternalServerError if an unexpected error occurs.
+    /// JSON containing the extracted text content from the specification file.
     /// </returns>
-
-
+    /// <response code="200">
+    /// Successfully retrieved the specification file content as plain text.
+    /// </response>
+    /// <response code="400">
+    /// Invalid input — the email or webpage ID is missing or incorrectly formatted.
+    /// </response>
+    /// <response code="401">
+    /// The email is valid but no registered user exists for it.
+    /// </response>
+    /// <response code="404">
+    /// The specified webpage or its specification file could not be found.
+    /// </response>
+    /// <response code="503">
+    /// A server or file processing error occurred while retrieving or parsing the specification file.
+    /// </response>
+    /// <remarks>
+    /// - If the file is `.txt`, its content is returned as-is.  
+    /// - If the file is `.pdf`, the text is extracted from all pages and returned.  
+    /// - The result is wrapped in a JSON object with a `content` property.
+    /// </remarks>
+    [ProducesResponseType(typeof(DownloadSpecificationsResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     [HttpGet("download-specifications/{webpageId}")]
     public async Task<IActionResult> DownloadSpecifications(string webpageId, [FromQuery] string email)
     {
@@ -603,7 +744,10 @@ public class WebpageAnalyseController : ControllerBase
             string? specificationFileId = webpage.SpecificationFileId;
             if (specificationFileId == null) return NotFound("Specification File was not uploaded.");
 
-            (Stream stream, string fileName) = await _webpageAnalyseService.DownloadFileAsync(specificationFileId);
+            var fileResult = await _webpageAnalyseService.DownloadFileAsync(specificationFileId);
+            var stream = fileResult.Stream;
+            var fileName = fileResult.FileName;
+
             if (stream == null || fileName == null) throw new Exception("Couldn't find the file even though the file was uploaded.");
 
             string content;
@@ -627,12 +771,12 @@ public class WebpageAnalyseController : ControllerBase
                 using var reader = new StreamReader(stream);
                 content = await reader.ReadToEndAsync();
             }
-            return Ok(new { content });
+            return Ok(new DownloadSpecificationsResponse { Content = content });
         }
         catch (Exception error)
         {
             _logger.LogError($"Error in DownloadSpecifications: {error.Message}");
-            return StatusCode(500, $"Something went wrong.");
+            return StatusCode(503, $"Something went wrong.");
         }
     }
 

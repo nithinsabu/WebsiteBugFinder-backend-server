@@ -148,7 +148,7 @@ public class WebpageAnalyseControllerTests : IDisposable
 
         var okResult = Assert.IsType<OkObjectResult>(result);
         var dict = JsonConvert.DeserializeObject<Dictionary<string, string>>(JsonConvert.SerializeObject(okResult.Value));
-        Assert.Equal(email, dict["email"]);
+        Assert.Equal(email, dict["Email"]);
     }
 
     [Fact]
@@ -164,7 +164,7 @@ public class WebpageAnalyseControllerTests : IDisposable
     }
 
     [Fact]
-    public async Task Login_Returns500_WhenExceptionIsThrown()
+    public async Task Login_Returns503_WhenExceptionIsThrown()
     {
         // Arrange
         string email = "test@example.com";
@@ -177,7 +177,7 @@ public class WebpageAnalyseControllerTests : IDisposable
 
         // Assert
         var status = Assert.IsType<ObjectResult>(result);
-        Assert.Equal(500, status.StatusCode);
+        Assert.Equal(503, status.StatusCode);
         Assert.Contains("Something went wrong.", status.Value.ToString());
     }
 
@@ -228,7 +228,7 @@ public class WebpageAnalyseControllerTests : IDisposable
 
         var okResult = Assert.IsType<OkObjectResult>(result);
         var dict = JsonConvert.DeserializeObject<Dictionary<string, string>>(JsonConvert.SerializeObject(okResult.Value));
-        Assert.Equal(email, dict["email"]);
+        Assert.Equal(email, dict["Email"]);
     }
 
     [Fact]
@@ -249,7 +249,7 @@ public class WebpageAnalyseControllerTests : IDisposable
     }
 
     [Fact]
-    public async Task Signup_Returns500_WhenExceptionIsThrown()
+    public async Task Signup_Returns503_WhenExceptionIsThrown()
     {
         // Arrange
         string email = "test@example.com";
@@ -262,7 +262,7 @@ public class WebpageAnalyseControllerTests : IDisposable
 
         // Assert
         var statusResult = Assert.IsType<ObjectResult>(result);
-        Assert.Equal(500, statusResult.StatusCode);
+        Assert.Equal(503, statusResult.StatusCode);
         Assert.Contains("Something went wrong.", statusResult.Value?.ToString());
     }
 
@@ -616,7 +616,11 @@ public class WebpageAnalyseControllerTests : IDisposable
         string email = "test@example.com";
         _mockService.Setup(s => s.GetUserByEmailAsync(email)).ReturnsAsync("user123");
         _mockService.Setup(s => s.GetWebpageContentAndAnalysisAsync(webpageId))
-                        .ReturnsAsync(("<html>hi</html>", new WebpageAnalysisResult { Id = "webpage123", WebpageId = webpageId }));
+                        .ReturnsAsync(new WebpageContentAndAnalysisResult
+                        {
+                            HtmlContent = "<html>hi</html>",
+                            WebpageAnalysisResult = new WebpageAnalysisResult { Id = "webpage123", WebpageId = webpageId }
+                        });
 
         // Act
         var result = await _controller.ViewWebpage(webpageId, email);
@@ -640,8 +644,15 @@ public class WebpageAnalyseControllerTests : IDisposable
 
         _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync((string?)null);
         _mockService.Setup(s => s.GetWebpageContentAndAnalysisAsync(webpageId))
-                .ReturnsAsync(("<html>hi</html>", new WebpageAnalysisResult { Id = "webpage123", WebpageId = webpageId }));
-
+     .ReturnsAsync(new WebpageContentAndAnalysisResult
+     {
+         HtmlContent = "<html>hi</html>",
+         WebpageAnalysisResult = new WebpageAnalysisResult
+         {
+             Id = "webpage123",
+             WebpageId = webpageId
+         }
+     });
         var result = await _controller.ViewWebpage(webpageId, "test@example.com");
 
         var unauthorized = Assert.IsType<UnauthorizedObjectResult>(result);
@@ -654,9 +665,8 @@ public class WebpageAnalyseControllerTests : IDisposable
         string webpageId = ObjectId.GenerateNewId().ToString();
 
         _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user123");
-        _mockService.Setup(s => s.GetWebpageContentAndAnalysisAsync("abc123"))
-                .ReturnsAsync(("<html>hi</html>", new WebpageAnalysisResult { Id = "webpage123", WebpageId = webpageId }));
-
+        _mockService.Setup(s => s.GetWebpageContentAndAnalysisAsync(webpageId))
+     .ReturnsAsync(new WebpageContentAndAnalysisResult());
         var result = await _controller.ViewWebpage(webpageId, "test@example.com");
 
         var notFound = Assert.IsType<NotFoundObjectResult>(result);
@@ -742,15 +752,21 @@ public class WebpageAnalyseControllerTests : IDisposable
     }
 
     [Fact]
-    public async Task DownloadDesignFile_Returns500_IfStreamOrFileNameIsNull()
+    public async Task DownloadDesignFile_Returns503_IfStreamOrFileNameIsNull()
     {
         _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user1");
         _mockService.Setup(s => s.GetWebpageAsync("60f7d2a2c2a62b3b6c8e4f12", "user1")).ReturnsAsync(new Webpage { DesignFileId = "file123" });
-        _mockService.Setup(s => s.DownloadFileAsync("file123")).ReturnsAsync(((Stream)null, null));
+        _mockService
+    .Setup(s => s.DownloadFileAsync("file123"))
+    .ReturnsAsync(new FileDownloadResult
+    {
+        Stream = null,
+        FileName = null
+    });
 
         var result = await _controller.DownloadDesignFile("60f7d2a2c2a62b3b6c8e4f12", "test@example.com");
         var status = Assert.IsType<ObjectResult>(result);
-        Assert.Equal(500, status.StatusCode);
+        Assert.Equal(503, status.StatusCode);
         Assert.Contains("Something went wrong", status.Value.ToString());
     }
 
@@ -762,7 +778,11 @@ public class WebpageAnalyseControllerTests : IDisposable
 
         _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user1");
         _mockService.Setup(s => s.GetWebpageAsync("60f7d2a2c2a62b3b6c8e4f12", "user1")).ReturnsAsync(new Webpage { DesignFileId = "file123" });
-        _mockService.Setup(s => s.DownloadFileAsync("file123")).ReturnsAsync((testStream, fileName));
+        _mockService.Setup(s => s.DownloadFileAsync("file123")).ReturnsAsync(new FileDownloadResult
+        {
+            Stream = testStream,
+            FileName = fileName
+        });
 
         var result = await _controller.DownloadDesignFile("60f7d2a2c2a62b3b6c8e4f12", "test@example.com");
 
@@ -824,15 +844,21 @@ public class WebpageAnalyseControllerTests : IDisposable
     }
 
     [Fact]
-    public async Task DownloadSpecifications_Returns_500_If_Stream_Is_Null()
+    public async Task DownloadSpecifications_Returns_503_If_Stream_Is_Null()
     {
         _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user");
         _mockService.Setup(s => s.GetWebpageAsync("60f7d2a2c2a62b3b6c8e4f12", "user")).ReturnsAsync(new Webpage { SpecificationFileId = "fid" });
-        _mockService.Setup(s => s.DownloadFileAsync("fid")).ReturnsAsync((null as Stream, null));
+        _mockService
+     .Setup(s => s.DownloadFileAsync("fid"))
+     .ReturnsAsync(new FileDownloadResult
+     {
+         Stream = null,
+         FileName = null
+     });
 
         var result = await _controller.DownloadSpecifications("60f7d2a2c2a62b3b6c8e4f12", "test@example.com");
         var obj = Assert.IsType<ObjectResult>(result);
-        Assert.Equal(500, obj.StatusCode);
+        Assert.Equal(503, obj.StatusCode);
         Assert.Contains("Something went wrong", obj.Value.ToString());
     }
 
@@ -849,8 +875,13 @@ public class WebpageAnalyseControllerTests : IDisposable
 
         _mockService.Setup(s => s.GetUserByEmailAsync("test@example.com")).ReturnsAsync("user");
         _mockService.Setup(s => s.GetWebpageAsync("60f7d2a2c2a62b3b6c8e4f12", "user")).ReturnsAsync(new Webpage { SpecificationFileId = "fid" });
-        _mockService.Setup(s => s.DownloadFileAsync("fid")).ReturnsAsync((stream, "file.txt"));
-
+        _mockService
+            .Setup(s => s.DownloadFileAsync("fid"))
+            .ReturnsAsync(new FileDownloadResult
+            {
+                Stream = stream,
+                FileName = "file.txt"
+            });
         var result = await _controller.DownloadSpecifications("60f7d2a2c2a62b3b6c8e4f12", "test@example.com");
         var ok = Assert.IsType<OkObjectResult>(result);
 
@@ -858,7 +889,7 @@ public class WebpageAnalyseControllerTests : IDisposable
 
         var dict = JsonConvert.DeserializeObject<Dictionary<string, string>>(json);
 
-        Assert.Equal(content, dict["content"]);
+        Assert.Equal(content, dict["Content"]);
     }
 
     [Fact]
@@ -873,7 +904,13 @@ public class WebpageAnalyseControllerTests : IDisposable
         {
             SpecificationFileId = "spec123"
         });
-        _mockService.Setup(s => s.DownloadFileAsync("spec123")).ReturnsAsync((stream, "mock.pdf"));
+        _mockService
+    .Setup(s => s.DownloadFileAsync("spec123"))
+    .ReturnsAsync(new FileDownloadResult
+    {
+        Stream = stream,
+        FileName = "mock.pdf"
+    });
 
         // Act
         var result = await _controller.DownloadSpecifications("60f7d2a2c2a62b3b6c8e4f12", "test@example.com");
@@ -883,7 +920,7 @@ public class WebpageAnalyseControllerTests : IDisposable
         string json = JsonConvert.SerializeObject(ok.Value);
         var dict = JsonConvert.DeserializeObject<Dictionary<string, string>>(json);
 
-        Assert.Contains("This is from PDF", dict["content"]);
+        Assert.Contains("This is from PDF", dict["Content"]);
     }
 
     private byte[] CreateSimplePdfWithText(string text)

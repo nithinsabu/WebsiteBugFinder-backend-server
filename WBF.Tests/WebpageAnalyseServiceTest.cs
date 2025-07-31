@@ -385,13 +385,13 @@ public async Task CreateWebpageAndAnalysisResultAsync_WhenWebpageAnalysisResultI
             .Returns(mockCursor.Object);
 
         // Act
-        var (stream, returnedFileName) = await _service.DownloadFileAsync(fileId);
+        var result = await _service.DownloadFileAsync(fileId);
 
         // Assert
-        Assert.NotNull(stream);
-        Assert.Equal("test.txt", returnedFileName);
-        stream.Seek(0, SeekOrigin.Begin);
-        using var reader = new StreamReader(stream!);
+        Assert.NotNull(result.Stream);
+        Assert.Equal("test.txt", result.FileName);
+        result.Stream.Seek(0, SeekOrigin.Begin);
+        using var reader = new StreamReader(result.Stream!);
         var content = await reader.ReadToEndAsync();
         Assert.Equal("dummy content", content);
     }
@@ -403,11 +403,11 @@ public async Task CreateWebpageAndAnalysisResultAsync_WhenWebpageAnalysisResultI
         var invalidId = "not-an-object-id";
 
         // Act
-        var (stream, fileName) = await _service.DownloadFileAsync(invalidId);
+        var result = await _service.DownloadFileAsync(invalidId);
 
         // Assert
-        Assert.Null(stream);
-        Assert.Null(fileName);
+        Assert.Null(result.Stream);
+        Assert.Null(result.FileName);
     }
 
     [Fact]
@@ -422,111 +422,11 @@ public async Task CreateWebpageAndAnalysisResultAsync_WhenWebpageAnalysisResultI
             .ThrowsAsync(new IOException("Download failed"));
 
         // Act
-        var (stream, fileName) = await _service.DownloadFileAsync(fileId);
+        var result = await _service.DownloadFileAsync(fileId);
 
         // Assert
-        Assert.Null(stream);
-        Assert.Null(fileName);
-    }
-
-    //ListWebpagesAsync
-    [Fact]
-    public async Task ListWebpagesAsync_WhenUserHasWebpages_ReturnsSummaries()
-    {
-        // Arrange
-        var userId = "user123";
-
-        var webpages = new List<Webpage>
-    {
-        new()
-        {
-            Id = ObjectId.GenerateNewId().ToString(),
-            Name = "Test Page 1",
-            Url = "https://example.com",
-            FileName = "test1.html",
-            UploadDate = DateTime.UtcNow,
-            UserId = userId
-        }
-        ,
-        new()
-        {
-            Id = ObjectId.GenerateNewId().ToString(),
-            Name = "Test Page 2",
-            Url = "https://example.com",
-            FileName = "test2.html",
-            UploadDate = DateTime.UtcNow,
-            UserId = userId
-        }
-    };
-
-        var summaries = webpages.Select(w => new WebpageSummary
-        {
-            Id = w.Id,
-            Name = w.Name,
-            UploadDate = w.UploadDate,
-            FileName = w.FileName,
-            Url = w.Url
-        }).ToList();
-        _mockWebpages
-    .Setup(c => c.FindAsync(
-        It.IsAny<FilterDefinition<Webpage>>(),
-        It.IsAny<FindOptions<Webpage, WebpageSummary>>(),
-        It.IsAny<CancellationToken>()))
-    .ReturnsAsync(MockNonEmptyCursor<WebpageSummary>(summaries));
-
-        // Act
-        var result = await _service.ListWebpagesAsync(userId);
-
-        // Assert
-        Assert.Equal(webpages.Count, result.Count);
-
-        for (int i = 0; i < webpages.Count; i++)
-        {
-            Assert.Equal(webpages[i].Id, result[i].Id);
-            Assert.Equal(webpages[i].Name, result[i].Name);
-            Assert.Equal(webpages[i].Url, result[i].Url);
-            Assert.Equal(webpages[i].FileName, result[i].FileName);
-            Assert.Equal(webpages[i].UploadDate, result[i].UploadDate);
-        }
-    }
-
-    public async Task ListWebpagesAsync_WhenUserHasNoWebpages_ReturnsEmptyList()
-    {
-        // Arrange
-        var userId = "user123";
-        var emptySummaries = new List<WebpageSummary>();
-
-        _mockWebpages
-            .Setup(c => c.FindAsync(
-                It.IsAny<FilterDefinition<Webpage>>(),
-                It.IsAny<FindOptions<Webpage, WebpageSummary>>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(MockNonEmptyCursor<WebpageSummary>(emptySummaries));
-
-        // Act
-        var result = await _service.ListWebpagesAsync(userId);
-
-        // Assert
-        Assert.NotNull(result);
-        Assert.Empty(result);
-    }
-
-    [Fact]
-    public async Task ListWebpagesAsync_WhenCursorIsNull_ThrowsException()
-    {
-        // Arrange
-        var userId = "user123";
-
-        _mockWebpages
-            .Setup(c => c.FindAsync(
-                It.IsAny<FilterDefinition<Webpage>>(),
-                It.IsAny<FindOptions<Webpage, WebpageSummary>>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync((IAsyncCursor<WebpageSummary>?)null);
-
-        // Act & Assert
-        await Assert.ThrowsAsync<ArgumentNullException>(() =>
-            _service.ListWebpagesAsync(userId));
+        Assert.Null(result.Stream);
+        Assert.Null(result.FileName);
     }
 
     //GetWebpageContentAndAnalysisAsync
@@ -542,11 +442,11 @@ public async Task CreateWebpageAndAnalysisResultAsync_WhenWebpageAnalysisResultI
             .ReturnsAsync(MockEmptyCursor<Webpage>());
 
         // Act
-        var (html, analysis) = await _service.GetWebpageContentAndAnalysisAsync("web123");
+        var result = await _service.GetWebpageContentAndAnalysisAsync("web123");
 
         // Assert
-        Assert.Null(html);
-        Assert.Null(analysis);
+        Assert.Null(result.HtmlContent);
+        Assert.Null(result.WebpageAnalysisResult);
     }
 
     [Theory]
@@ -564,11 +464,11 @@ public async Task CreateWebpageAndAnalysisResultAsync_WhenWebpageAnalysisResultI
             .ReturnsAsync(MockNonEmptyCursor(webpage));
 
         // Act
-        var (html, analysis) = await _service.GetWebpageContentAndAnalysisAsync("web123");
+        var result = await _service.GetWebpageContentAndAnalysisAsync("web123");
 
         // Assert
-        Assert.Null(html);
-        Assert.Null(analysis);
+        Assert.Null(result.HtmlContent);
+        Assert.Null(result.WebpageAnalysisResult);
     }
 
     [Fact]
@@ -612,11 +512,11 @@ public async Task CreateWebpageAndAnalysisResultAsync_WhenWebpageAnalysisResultI
             .ReturnsAsync(MockEmptyCursor<WebpageAnalysisResult>());
 
         // Act
-        var (html, analysis) = await _service.GetWebpageContentAndAnalysisAsync("web123");
+        var result = await _service.GetWebpageContentAndAnalysisAsync("web123");
 
         // Assert
-        Assert.Null(html);
-        Assert.Null(analysis);
+        Assert.Null(result.HtmlContent);
+        Assert.Null(result.WebpageAnalysisResult);
     }
 
     [Fact]
@@ -679,11 +579,11 @@ public async Task CreateWebpageAndAnalysisResultAsync_WhenWebpageAnalysisResultI
             .ReturnsAsync(MockNonEmptyCursor(analysisResult));
 
         // Act
-        var (html, analysis) = await _service.GetWebpageContentAndAnalysisAsync("web123");
+        var result = await _service.GetWebpageContentAndAnalysisAsync("web123");
 
         // Assert
-        Assert.Equal("valid html content", html);
-        Assert.Equal(analysisResult.WebpageId, analysis.WebpageId);
+        Assert.Equal("valid html content", result.HtmlContent);
+        Assert.Equal(analysisResult.WebpageId, result.WebpageAnalysisResult.WebpageId);
     }
 
     [Fact]
