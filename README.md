@@ -19,7 +19,7 @@ Additional environmental variables required:
 | `PAGESPEEDAPI__CONNECTIONSTRING`                 | Google PageSpeed API endpoint       |
 | `PAGESPEEDAPI__API_KEY`                          | API key for PageSpeed               |
 | `NUVALIDATOR__CONNECTIONSTRING`                  | URL of W3C Nu Validator             |
-
+| `WEBPAGEANALYSEDATABASE__CONNECTIONSTRING`       | URL of the mongoDB database         |
 Mention these in appsettings.json or appsettings.{Environment}.json or set manually. Example: mention the PYTHONSERVER__CONNECTIONSTRING in configuration json as: {PythonServer: {ConnectionString: "<Python server connection string>"}}
 
 Run it locally by:
@@ -32,3 +32,8 @@ Run the docker image by:
 1. docker build -t backend-app .
 2. docker run -e <Provide all environment variables mentioned above> --name <Provide name> --network <Provide network> -p <PORT>:8080 backend-app
 (Runs on port 8080 of docker container)
+
+Example run:
+docker run --name backend-app --network wbfapp -e PYTHONSERVER__CONNECTIONSTRING=http://fastapi-app:80 -e AXECORE__CONNECTIONSTRING=http://host.docker.internal:4000 -e PAGESPEEDAPI__CONNECTIONSTRING=https://www.googleapis.com/pagespeedonline/v5/runPagespeed -e PAGESPEEDAPI__API_KEY=xxxxxxxx -e NUVALIDATOR__CONNECTIONSTRING=https://validator.w3.org/nu/ -e WEBPAGEANALYSEDATABASE_CONNECTIONSTRING=mongodb://mongodb:27017 -p 5254:8080 backend-app:latest 
+
+(Expose 5254 to host)
