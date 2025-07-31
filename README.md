@@ -34,6 +34,6 @@ Run the docker image by:
 (Runs on port 8080 of docker container)
 
 Example run:
-docker run --name backend-app --network wbfapp -e PYTHONSERVER__CONNECTIONSTRING=http://fastapi-app:80 -e AXECORE__CONNECTIONSTRING=http://host.docker.internal:4000 -e PAGESPEEDAPI__CONNECTIONSTRING=https://www.googleapis.com/pagespeedonline/v5/runPagespeed -e PAGESPEEDAPI__API_KEY=xxxxxxxx -e NUVALIDATOR__CONNECTIONSTRING=https://validator.w3.org/nu/ -e WEBPAGEANALYSEDATABASE_CONNECTIONSTRING=mongodb://mongodb:27017 -p 5254:8080 backend-app:latest 
+docker run --name backend-app --network wbfapp -e PYTHONSERVER__CONNECTIONSTRING=http://fastapi-app:80 -e AXECORE__CONNECTIONSTRING=http://host.docker.internal:4000 -e PAGESPEEDAPI__CONNECTIONSTRING=https://www.googleapis.com/pagespeedonline/v5/runPagespeed -e PAGESPEEDAPI__API_KEY=AIzaSyDRd8-ZNhRLb6GHF8RJRmDNCMAZdUU2GjA -e NUVALIDATOR__CONNECTIONSTRING=https://validator.w3.org/nu/ -e WEBPAGEANALYSEDATABASE__CONNECTIONSTRING=mongodb://mongodb:27017 -p 5254:8080 backend-app:latest 
 
 (Expose 5254 to host)
